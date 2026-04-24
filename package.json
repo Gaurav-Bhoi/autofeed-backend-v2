@@ -4,12 +4,16 @@
   "private": true,
   "description": "Cloudflare Worker API built with Hono and Wrangler.",
   "scripts": {
-    "dev": "wrangler dev",
-    "start": "wrangler dev",
+    "dev": "wrangler dev --env development",
+    "start": "wrangler dev --env development",
+    "prisma:generate": "prisma generate",
+    "prisma:db:push": "prisma db push",
     "typegen": "wrangler types",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typegen && npm run typecheck",
-    "deploy": "wrangler deploy"
+    "check": "npm run prisma:generate && npm run typegen && npm run typecheck",
+    "deploy": "wrangler deploy --env production",
+    "deploy:development": "wrangler deploy --env development",
+    "deploy:production": "wrangler deploy --env production"
   },
   "keywords": [
     "cloudflare",
@@ -22,7 +26,11 @@
     "node": ">=18"
   },
   "dependencies": {
-    "hono": "^4.12.14"
+    "@neondatabase/serverless": "^1.1.0",
+    "@prisma/adapter-neon": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "hono": "^4.12.14",
+    "prisma": "^7.8.0"
   },
   "devDependencies": {
     "typescript": "^6.0.3",

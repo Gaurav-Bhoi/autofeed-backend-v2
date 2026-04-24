@@ -1,0 +1,40 @@
+generator client {
+  provider   = "prisma-client"
+  output     = "../src/generated/prisma"
+  engineType = "client"
+  runtime    = "workerd"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model LinkedInAccount {
+  id                    String    @id
+  linkedinMemberId      String    @unique @map("linkedin_member_id")
+  authorUrn             String    @map("author_urn")
+  email                 String?
+  emailVerified         Boolean?  @map("email_verified")
+  fullName              String?   @map("full_name")
+  givenName             String?   @map("given_name")
+  familyName            String?   @map("family_name")
+  pictureUrl            String?   @map("picture_url")
+  locale                String?
+  accessToken           String    @map("access_token")
+  accessTokenExpiresAt  DateTime  @map("access_token_expires_at") @db.Timestamptz(6)
+  tokenType             String    @map("token_type")
+  scopesJson            Json      @default("[]") @map("scopes_json")
+  idToken               String?   @map("id_token")
+  refreshToken          String?   @map("refresh_token")
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at") @db.Timestamptz(6)
+  profileJson           Json      @default("{}") @map("profile_json")
+  lastState             String?   @map("last_state")
+  lastRequestId         String?   @map("last_request_id")
+  lastLoginAt           DateTime  @map("last_login_at") @db.Timestamptz(6)
+  loginCount            Int       @default(1) @map("login_count")
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([lastLoginAt(sort: Desc)], map: "linkedin_accounts_last_login_at_idx")
+  @@map("linkedin_accounts")
+}
