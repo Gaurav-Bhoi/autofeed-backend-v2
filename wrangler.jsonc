@@ -16,12 +16,26 @@
   },
   "env": {
     "development": {
+      "triggers": {
+        "crons": ["*/5 * * * *"]
+      },
       "secrets": {
-        "required": ["LINKEDIN_CLIENT_SECRET", "DATABASE_URL"]
+        "required": ["LINKEDIN_CLIENT_SECRET", "DATABASE_URL", "RUNPOD_API_KEY"]
       },
       "vars": {
         "LINKEDIN_REDIRECT_URI": "https://dev-api.autofeed.io/linkedin/authorizationCallback",
-        "LINKEDIN_CLIENT_ID": "86esd8heytrkhm"
+        "LINKEDIN_CLIENT_ID": "86esd8heytrkhm",
+        "CONTENT_LINKEDIN_AUTO_POST_SCHEDULE": "daily-10am",
+        "CONTENT_LINKEDIN_AUTO_POST_SECTIONS": "tech-memes|news",
+        "CONTENT_LINKEDIN_MEME_SUBREDDITS": "ProgrammerHumor|programmingmemes|softwaregore|iiiiiiitttttttttttt|linuxmemes|webdevmemes",
+        "CONTENT_LINKEDIN_REDDIT_SUBREDDITS": "worldnews|news|geopolitics|india|IndianPolitics|IndianModerate|unitedstatesofindia|business|economics|technology|science|UpliftingNews",
+        "CONTENT_LINKEDIN_REDDIT_USER_AGENT": "script:linkedin-news:v1.0 (by /u/YOUR_REDDIT_USERNAME)",
+        "CONTENT_LINKEDIN_RUNPOD_ENDPOINT_ID": "qexf1iafzz41nh",
+        "CONTENT_LINKEDIN_RUNPOD_MODEL": "Qwen2.5-VL-32B-Instruct",
+        "CONTENT_LINKEDIN_RUNPOD_MAX_NEW_TOKENS": "650",
+        "CONTENT_LINKEDIN_RUNPOD_TEMPERATURE": "0.2",
+        "CONTENT_LINKEDIN_RUNPOD_POLL_TIMEOUT_MS": "45000",
+        "CONTENT_LINKEDIN_RUNPOD_POLL_INTERVAL_MS": "5000"
       },
       "routes": [
         {
@@ -31,12 +45,26 @@
       ]
     },
     "production": {
+      "triggers": {
+        "crons": ["*/5 * * * *"]
+      },
       "secrets": {
-        "required": ["LINKEDIN_CLIENT_SECRET", "DATABASE_URL"]
+        "required": ["LINKEDIN_CLIENT_SECRET", "DATABASE_URL", "RUNPOD_API_KEY"]
       },
       "vars": {
         "LINKEDIN_REDIRECT_URI": "https://api.autofeed.io/linkedin/authorizationCallback",
-        "LINKEDIN_CLIENT_ID": "86esd8heytrkhm"
+        "LINKEDIN_CLIENT_ID": "86esd8heytrkhm",
+        "CONTENT_LINKEDIN_AUTO_POST_SCHEDULE": "off",
+        "CONTENT_LINKEDIN_AUTO_POST_SECTIONS": "tech-memes|news",
+        "CONTENT_LINKEDIN_MEME_SUBREDDITS": "ProgrammerHumor|programmingmemes|softwaregore|iiiiiiitttttttttttt|linuxmemes|webdevmemes",
+        "CONTENT_LINKEDIN_REDDIT_SUBREDDITS": "worldnews|news|geopolitics|india|IndianPolitics|IndianModerate|unitedstatesofindia|business|economics|technology|science|UpliftingNews",
+        "CONTENT_LINKEDIN_REDDIT_USER_AGENT": "script:linkedin-news:v1.0 (by /u/YOUR_REDDIT_USERNAME)",
+        "CONTENT_LINKEDIN_RUNPOD_ENDPOINT_ID": "qexf1iafzz41nh",
+        "CONTENT_LINKEDIN_RUNPOD_MODEL": "Qwen2.5-VL-32B-Instruct",
+        "CONTENT_LINKEDIN_RUNPOD_MAX_NEW_TOKENS": "650",
+        "CONTENT_LINKEDIN_RUNPOD_TEMPERATURE": "0.2",
+        "CONTENT_LINKEDIN_RUNPOD_POLL_TIMEOUT_MS": "45000",
+        "CONTENT_LINKEDIN_RUNPOD_POLL_INTERVAL_MS": "5000"
       },
       "routes": [
         {

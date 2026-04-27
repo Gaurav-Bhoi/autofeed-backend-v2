@@ -1,5 +1,6 @@
-import { badRequest } from '../../../shared/http/errors'
+import { badRequest, forbidden } from '../../../shared/http/errors'
 import type {
+  LinkedInCreatePostInput,
   LinkedInPostInput,
   LinkedInVisibility,
 } from '../domain/linkedin.entities'
@@ -15,7 +16,13 @@ const allowedVisibility = new Set<LinkedInVisibility>([
 export class LinkedInPostService {
   constructor(private readonly gateway: LinkedInGateway) {}
 
-  async publish(accessToken: string, input: LinkedInPostInput) {
+  async publish(
+    accessToken: string,
+    input: LinkedInPostInput,
+    options?: {
+      expectedLinkedInMemberId?: string
+    },
+  ) {
     if (!accessToken.trim()) {
       throw badRequest('LinkedIn access token is required')
     }
@@ -34,6 +41,14 @@ export class LinkedInPostService {
       this.assertUrl(input.articleUrl, 'articleUrl')
     }
 
+    if (input.imageUrl !== undefined) {
+      this.assertUrl(input.imageUrl, 'imageUrl')
+    }
+
+    if (input.articleUrl !== undefined && input.imageUrl !== undefined) {
+      throw badRequest('Only one of articleUrl or imageUrl can be attached')
+    }
+
     if (input.visibility && !allowedVisibility.has(input.visibility)) {
       throw badRequest(
         'visibility must be one of PUBLIC, LOGGED_IN, CONNECTIONS, or CONTAINER',
@@ -41,12 +56,32 @@ export class LinkedInPostService {
     }
 
     const profile = await this.gateway.getCurrentProfile(accessToken)
-    const postInput: LinkedInPostInput = {
+
+    if (
+      options?.expectedLinkedInMemberId &&
+      profile.id !== options.expectedLinkedInMemberId
+    ) {
+      throw forbidden(
+        'Authorization token does not match the connected LinkedIn account',
+      )
+    }
+
+    const postInput: LinkedInCreatePostInput = {
       text,
       visibility: input.visibility ?? 'PUBLIC',
     }
 
-    if (input.articleUrl !== undefined) {
+    if (input.imageUrl !== undefined) {
+      const image = await this.gateway.uploadImage(
+        accessToken,
+        profile.authorUrn,
+        {
+          imageUrl: input.imageUrl,
+        },
+      )
+
+      postInput.imageAssetUrn = image.asset
+    } else if (input.articleUrl !== undefined) {
       postInput.articleUrl = input.articleUrl
     }
 
@@ -60,6 +95,24 @@ export class LinkedInPostService {
 
     if (articleDescription) {
       postInput.articleDescription = articleDescription
+    }
+
+    const imageTitle = input.imageTitle?.trim()
+
+    if (imageTitle) {
+      postInput.imageTitle = imageTitle
+    }
+
+    const imageDescription = input.imageDescription?.trim()
+
+    if (imageDescription) {
+      postInput.imageDescription = imageDescription
+    }
+
+    const imageAltText = input.imageAltText?.trim()
+
+    if (imageAltText) {
+      postInput.imageAltText = imageAltText
     }
 
     return this.gateway.createPost(accessToken, profile.authorUrn, postInput)

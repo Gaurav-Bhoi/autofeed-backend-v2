@@ -1,16 +1,44 @@
 import { badGateway, serviceUnavailable } from '../../../shared/http/errors'
 import {
+  readLinkedInNewsCardImageInputFromUrl,
+  renderLinkedInNewsCardImage,
+} from '../../content/linkedin/application/linkedin-news-card-image.service'
+import {
   buildLinkedInPostPayload,
   toLinkedInProfile,
   type LinkedInAuthConfig,
-  type LinkedInPostInput,
+  type LinkedInCreatePostInput,
+  type LinkedInImageUploadInput,
   type LinkedInProfile,
   type LinkedInPublishedPost,
   type LinkedInTokenApiResponse,
   type LinkedInTokenSet,
+  type LinkedInUploadedImage,
   type LinkedInUserInfoResponse,
 } from '../domain/linkedin.entities'
 import type { LinkedInGateway } from '../domain/linkedin.gateway'
+
+const LINKEDIN_IMAGE_UPLOAD_MECHANISM =
+  'com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'
+const MAX_LINKEDIN_IMAGE_BYTES = 10 * 1024 * 1024
+const allowedLinkedInImageTypes = new Set([
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/gif',
+])
+
+type LinkedInRegisterUploadResponse = {
+  value?: {
+    asset?: string
+    uploadMechanism?: {
+      [LINKEDIN_IMAGE_UPLOAD_MECHANISM]?: {
+        uploadUrl?: string
+        headers?: Record<string, string>
+      }
+    }
+  }
+}
 
 export class LinkedInHttpGateway implements LinkedInGateway {
   constructor(private readonly config: LinkedInAuthConfig) {}
@@ -100,10 +128,131 @@ export class LinkedInHttpGateway implements LinkedInGateway {
     return toLinkedInProfile(payload)
   }
 
+  async uploadImage(
+    accessToken: string,
+    authorUrn: string,
+    input: LinkedInImageUploadInput,
+  ): Promise<LinkedInUploadedImage> {
+    const image = await this.readUploadImage(input.imageUrl)
+    const contentType = image.contentType
+    const imageBytes = image.bytes
+
+    if (imageBytes.byteLength > MAX_LINKEDIN_IMAGE_BYTES) {
+      throw badGateway('LinkedIn image must be 10 MB or smaller')
+    }
+
+    const upload = await this.registerImageUpload(accessToken, authorUrn)
+    const uploadHeaders: Record<string, string> = {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': contentType,
+      ...upload.headers,
+    }
+
+    const uploadResponse = await this.safeFetch(
+      'Failed to upload image to LinkedIn',
+      upload.uploadUrl,
+      {
+        method: 'PUT',
+        headers: uploadHeaders,
+        body: imageBytes,
+      },
+    )
+
+    const uploadPayload = await this.readPayload(uploadResponse)
+
+    if (!uploadResponse.ok) {
+      throw badGateway(
+        this.extractErrorMessage(uploadPayload, 'LinkedIn image upload failed'),
+      )
+    }
+
+    return {
+      asset: upload.asset,
+      uploadUrl: upload.uploadUrl,
+      contentType,
+      byteLength: imageBytes.byteLength,
+    }
+  }
+
+  private async readUploadImage(imageUrl: string) {
+    const renderedNewsCard = await this.renderAutoFeedNewsCard(imageUrl)
+
+    if (renderedNewsCard) {
+      return renderedNewsCard
+    }
+
+    const imageResponse = await this.safeFetch(
+      'Failed to fetch LinkedIn image URL',
+      imageUrl,
+      {
+        headers: {
+          Accept: 'image/jpeg,image/png,image/gif,image/*;q=0.8,*/*;q=0.5',
+          'User-Agent': 'Autofeed LinkedIn publisher/1.0 (https://autofeed.io)',
+        },
+      },
+    )
+
+    if (!imageResponse.ok) {
+      throw badGateway(
+        `LinkedIn image URL could not be fetched (${imageResponse.status})`,
+      )
+    }
+
+    const contentType = normalizeContentType(
+      imageResponse.headers.get('content-type'),
+    )
+
+    if (!allowedLinkedInImageTypes.has(contentType)) {
+      throw badGateway('LinkedIn image URL must return a JPG, PNG, or GIF image')
+    }
+
+    const imageBytes = await imageResponse.arrayBuffer()
+
+    if (imageBytes.byteLength > MAX_LINKEDIN_IMAGE_BYTES) {
+      throw badGateway('LinkedIn image must be 10 MB or smaller')
+    }
+
+    return {
+      contentType,
+      bytes: imageBytes,
+    }
+  }
+
+  private async renderAutoFeedNewsCard(imageUrl: string) {
+    let url: URL
+
+    try {
+      url = new URL(imageUrl)
+    } catch {
+      return null
+    }
+
+    if (url.pathname !== '/api/content/linkedin/news-card.png') {
+      return null
+    }
+
+    try {
+      const bytes = await renderLinkedInNewsCardImage(
+        readLinkedInNewsCardImageInputFromUrl(url),
+      )
+
+      return {
+        contentType: 'image/png',
+        bytes: toArrayBuffer(bytes),
+      }
+    } catch (error) {
+      throw badGateway(
+        error instanceof Error && error.message
+          ? `Failed to render LinkedIn news card image: ${error.message}`
+          : 'Failed to render LinkedIn news card image',
+      )
+    }
+  }
+
   async createPost(
     accessToken: string,
     authorUrn: string,
-    input: LinkedInPostInput,
+    input: LinkedInCreatePostInput,
   ): Promise<LinkedInPublishedPost> {
     const response = await this.safeFetch(
       'Failed to publish LinkedIn post',
@@ -143,6 +292,68 @@ export class LinkedInHttpGateway implements LinkedInGateway {
       lifecycleState: 'PUBLISHED',
       visibility: input.visibility ?? 'PUBLIC',
       commentary: input.text,
+      mediaCategory: input.imageAssetUrn
+        ? 'IMAGE'
+        : input.articleUrl
+          ? 'ARTICLE'
+          : 'NONE',
+      imageAssetUrn: input.imageAssetUrn ?? null,
+    }
+  }
+
+  private async registerImageUpload(accessToken: string, authorUrn: string) {
+    const response = await this.safeFetch(
+      'Failed to register LinkedIn image upload',
+      'https://api.linkedin.com/v2/assets?action=registerUpload',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          'X-Restli-Protocol-Version': '2.0.0',
+        },
+        body: JSON.stringify({
+          registerUploadRequest: {
+            owner: authorUrn,
+            recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
+            serviceRelationships: [
+              {
+                relationshipType: 'OWNER',
+                identifier: 'urn:li:userGeneratedContent',
+              },
+            ],
+            supportedUploadMechanism: ['SYNCHRONOUS_UPLOAD'],
+          },
+        }),
+      },
+    )
+
+    const payload =
+      (await this.readPayload(response)) as LinkedInRegisterUploadResponse | null
+
+    if (!response.ok) {
+      throw badGateway(
+        this.extractErrorMessage(
+          payload,
+          'LinkedIn image upload registration failed',
+        ),
+      )
+    }
+
+    const asset = payload?.value?.asset
+    const uploadRequest =
+      payload?.value?.uploadMechanism?.[LINKEDIN_IMAGE_UPLOAD_MECHANISM]
+
+    if (!asset || !uploadRequest?.uploadUrl) {
+      throw badGateway(
+        'LinkedIn image upload registration returned an unexpected response',
+      )
+    }
+
+    return {
+      asset,
+      uploadUrl: uploadRequest.uploadUrl,
+      headers: uploadRequest.headers ?? {},
     }
   }
 
@@ -205,4 +416,16 @@ export class LinkedInHttpGateway implements LinkedInGateway {
 
     return fallback
   }
+}
+
+function normalizeContentType(value: string | null) {
+  return value?.split(';')[0]?.trim().toLowerCase() ?? ''
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength)
+
+  new Uint8Array(buffer).set(bytes)
+
+  return buffer
 }

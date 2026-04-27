@@ -51,7 +51,8 @@ export const AnyNull = runtime.AnyNull
 
 
 export const ModelName = {
-  LinkedInAccount: 'LinkedInAccount'
+  LinkedInAccount: 'LinkedInAccount',
+  LinkedInContentHistory: 'LinkedInContentHistory'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -93,11 +94,41 @@ export const LinkedInAccountScalarFieldEnum = {
   lastRequestId: 'lastRequestId',
   lastLoginAt: 'lastLoginAt',
   loginCount: 'loginCount',
+  contentAutomationStatus: 'contentAutomationStatus',
+  contentAutomationStartedAt: 'contentAutomationStartedAt',
+  contentAutomationStoppedAt: 'contentAutomationStoppedAt',
+  contentAutomationUpdatedAt: 'contentAutomationUpdatedAt',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
 
 export type LinkedInAccountScalarFieldEnum = (typeof LinkedInAccountScalarFieldEnum)[keyof typeof LinkedInAccountScalarFieldEnum]
+
+
+export const LinkedInContentHistoryScalarFieldEnum = {
+  id: 'id',
+  contentKey: 'contentKey',
+  section: 'section',
+  itemId: 'itemId',
+  sourceUrl: 'sourceUrl',
+  imageUrl: 'imageUrl',
+  contentInputJson: 'contentInputJson',
+  aiStatus: 'aiStatus',
+  runpodInputMode: 'runpodInputMode',
+  runpodAttempt: 'runpodAttempt',
+  runpodJobId: 'runpodJobId',
+  runpodStatus: 'runpodStatus',
+  aiOutputJson: 'aiOutputJson',
+  aiError: 'aiError',
+  linkedinPostId: 'linkedinPostId',
+  accountId: 'accountId',
+  linkedinMemberId: 'linkedinMemberId',
+  publishedAt: 'publishedAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type LinkedInContentHistoryScalarFieldEnum = (typeof LinkedInContentHistoryScalarFieldEnum)[keyof typeof LinkedInContentHistoryScalarFieldEnum]
 
 
 export const SortOrder = {
@@ -113,6 +144,14 @@ export const JsonNullValueInput = {
 } as const
 
 export type JsonNullValueInput = (typeof JsonNullValueInput)[keyof typeof JsonNullValueInput]
+
+
+export const NullableJsonNullValueInput = {
+  DbNull: DbNull,
+  JsonNull: JsonNull
+} as const
+
+export type NullableJsonNullValueInput = (typeof NullableJsonNullValueInput)[keyof typeof NullableJsonNullValueInput]
 
 
 export const QueryMode = {

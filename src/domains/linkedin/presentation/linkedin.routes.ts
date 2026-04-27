@@ -8,7 +8,7 @@ import { getBearerToken, parseJsonObject } from '../../../shared/http/request'
 import { LINKEDIN_CALLBACK_PATH } from '../linkedin.constants'
 import type { LinkedInProfile } from '../domain/linkedin.entities'
 import type { LinkedInVisibility } from '../domain/linkedin.entities'
-import { createLinkedInServices } from '../infrastructure/create-linkedin-services'
+import { loadLinkedInServices } from '../infrastructure/load-linkedin-services'
 
 export async function handleLinkedInCallback(c: Context<AppEnv>) {
   const prefersHtml = readCallbackHtmlPreference(c)
@@ -50,7 +50,7 @@ export async function handleLinkedInCallback(c: Context<AppEnv>) {
   }
 
   try {
-    const { authService } = createLinkedInServices(c.env)
+    const { authService } = await loadLinkedInServices(c.env)
     const state = c.req.query('state') ?? null
     const result = await authService.handleCallback(code, {
       state,
@@ -138,7 +138,7 @@ export function createLinkedInRouter() {
   registerLinkedInAuthRoute(router, '/authorizationUrl', { preferJson: true })
 
   router.get('/dashboard', async (c) => {
-    const { dashboardService } = createLinkedInServices(c.env)
+    const { dashboardService } = await loadLinkedInServices(c.env)
     const accountId = readOptionalQueryValue(c, 'accountId')
     const linkedinMemberId = readOptionalQueryValue(c, 'linkedinMemberId')
     const lookup: {
@@ -167,7 +167,7 @@ export function createLinkedInRouter() {
   })
 
   router.get('/profile', async (c) => {
-    const { profileService } = createLinkedInServices(c.env)
+    const { profileService } = await loadLinkedInServices(c.env)
     const accessToken = getBearerToken(c.req.header('Authorization'))
     const profile = await profileService.getCurrentProfile(accessToken)
 
@@ -180,13 +180,17 @@ export function createLinkedInRouter() {
   })
 
   router.post('/posts', async (c) => {
-    const { postService } = createLinkedInServices(c.env)
+    const { postService } = await loadLinkedInServices(c.env)
     const accessToken = getBearerToken(c.req.header('Authorization'))
     const body = await parseJsonObject<{
       text?: unknown
       articleUrl?: unknown
       articleTitle?: unknown
       articleDescription?: unknown
+      imageUrl?: unknown
+      imageTitle?: unknown
+      imageDescription?: unknown
+      imageAltText?: unknown
       visibility?: unknown
     }>(c.req.raw)
 
@@ -195,6 +199,10 @@ export function createLinkedInRouter() {
       articleUrl?: string
       articleTitle?: string
       articleDescription?: string
+      imageUrl?: string
+      imageTitle?: string
+      imageDescription?: string
+      imageAltText?: string
       visibility?: LinkedInVisibility
     } = {
       text: typeof body.text === 'string' ? body.text : '',
@@ -210,6 +218,22 @@ export function createLinkedInRouter() {
 
     if (typeof body.articleDescription === 'string') {
       postInput.articleDescription = body.articleDescription
+    }
+
+    if (typeof body.imageUrl === 'string') {
+      postInput.imageUrl = body.imageUrl
+    }
+
+    if (typeof body.imageTitle === 'string') {
+      postInput.imageTitle = body.imageTitle
+    }
+
+    if (typeof body.imageDescription === 'string') {
+      postInput.imageDescription = body.imageDescription
+    }
+
+    if (typeof body.imageAltText === 'string') {
+      postInput.imageAltText = body.imageAltText
     }
 
     if (typeof body.visibility === 'string') {
@@ -257,7 +281,7 @@ async function handleLinkedInAuthStart(
     preferJson?: boolean
   },
 ) {
-  const { authService } = createLinkedInServices(c.env)
+  const { authService } = await loadLinkedInServices(c.env)
   const input = await readAuthStartInput(c)
   const loginOptions: {
     state?: string

@@ -384,7 +384,8 @@ type FieldRefInputType<Model, FieldType> = Model extends never ? never : FieldRe
 
 
 export const ModelName = {
-  LinkedInAccount: 'LinkedInAccount'
+  LinkedInAccount: 'LinkedInAccount',
+  LinkedInContentHistory: 'LinkedInContentHistory'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -400,7 +401,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "linkedInAccount"
+    modelProps: "linkedInAccount" | "linkedInContentHistory"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -478,6 +479,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    LinkedInContentHistory: {
+      payload: Prisma.$LinkedInContentHistoryPayload<ExtArgs>
+      fields: Prisma.LinkedInContentHistoryFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.LinkedInContentHistoryFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LinkedInContentHistoryPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.LinkedInContentHistoryFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LinkedInContentHistoryPayload>
+        }
+        findFirst: {
+          args: Prisma.LinkedInContentHistoryFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LinkedInContentHistoryPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.LinkedInContentHistoryFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LinkedInContentHistoryPayload>
+        }
+        findMany: {
+          args: Prisma.LinkedInContentHistoryFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LinkedInContentHistoryPayload>[]
+        }
+        create: {
+          args: Prisma.LinkedInContentHistoryCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LinkedInContentHistoryPayload>
+        }
+        createMany: {
+          args: Prisma.LinkedInContentHistoryCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.LinkedInContentHistoryCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LinkedInContentHistoryPayload>[]
+        }
+        delete: {
+          args: Prisma.LinkedInContentHistoryDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LinkedInContentHistoryPayload>
+        }
+        update: {
+          args: Prisma.LinkedInContentHistoryUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LinkedInContentHistoryPayload>
+        }
+        deleteMany: {
+          args: Prisma.LinkedInContentHistoryDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.LinkedInContentHistoryUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.LinkedInContentHistoryUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LinkedInContentHistoryPayload>[]
+        }
+        upsert: {
+          args: Prisma.LinkedInContentHistoryUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LinkedInContentHistoryPayload>
+        }
+        aggregate: {
+          args: Prisma.LinkedInContentHistoryAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateLinkedInContentHistory>
+        }
+        groupBy: {
+          args: Prisma.LinkedInContentHistoryGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.LinkedInContentHistoryGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.LinkedInContentHistoryCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.LinkedInContentHistoryCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -540,11 +615,41 @@ export const LinkedInAccountScalarFieldEnum = {
   lastRequestId: 'lastRequestId',
   lastLoginAt: 'lastLoginAt',
   loginCount: 'loginCount',
+  contentAutomationStatus: 'contentAutomationStatus',
+  contentAutomationStartedAt: 'contentAutomationStartedAt',
+  contentAutomationStoppedAt: 'contentAutomationStoppedAt',
+  contentAutomationUpdatedAt: 'contentAutomationUpdatedAt',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
 
 export type LinkedInAccountScalarFieldEnum = (typeof LinkedInAccountScalarFieldEnum)[keyof typeof LinkedInAccountScalarFieldEnum]
+
+
+export const LinkedInContentHistoryScalarFieldEnum = {
+  id: 'id',
+  contentKey: 'contentKey',
+  section: 'section',
+  itemId: 'itemId',
+  sourceUrl: 'sourceUrl',
+  imageUrl: 'imageUrl',
+  contentInputJson: 'contentInputJson',
+  aiStatus: 'aiStatus',
+  runpodInputMode: 'runpodInputMode',
+  runpodAttempt: 'runpodAttempt',
+  runpodJobId: 'runpodJobId',
+  runpodStatus: 'runpodStatus',
+  aiOutputJson: 'aiOutputJson',
+  aiError: 'aiError',
+  linkedinPostId: 'linkedinPostId',
+  accountId: 'accountId',
+  linkedinMemberId: 'linkedinMemberId',
+  publishedAt: 'publishedAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type LinkedInContentHistoryScalarFieldEnum = (typeof LinkedInContentHistoryScalarFieldEnum)[keyof typeof LinkedInContentHistoryScalarFieldEnum]
 
 
 export const SortOrder = {
@@ -560,6 +665,14 @@ export const JsonNullValueInput = {
 } as const
 
 export type JsonNullValueInput = (typeof JsonNullValueInput)[keyof typeof JsonNullValueInput]
+
+
+export const NullableJsonNullValueInput = {
+  DbNull: DbNull,
+  JsonNull: JsonNull
+} as const
+
+export type NullableJsonNullValueInput = (typeof NullableJsonNullValueInput)[keyof typeof NullableJsonNullValueInput]
 
 
 export const QueryMode = {
@@ -780,6 +893,7 @@ export type PrismaClientOptions = ({
 }
 export type GlobalOmitConfig = {
   linkedInAccount?: Prisma.LinkedInAccountOmit
+  linkedInContentHistory?: Prisma.LinkedInContentHistoryOmit
 }
 
 /* Types for Logging */

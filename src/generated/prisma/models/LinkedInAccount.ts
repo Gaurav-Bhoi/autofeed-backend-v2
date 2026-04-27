@@ -55,6 +55,10 @@ export type LinkedInAccountMinAggregateOutputType = {
   lastRequestId: string | null
   lastLoginAt: Date | null
   loginCount: number | null
+  contentAutomationStatus: string | null
+  contentAutomationStartedAt: Date | null
+  contentAutomationStoppedAt: Date | null
+  contentAutomationUpdatedAt: Date | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -80,6 +84,10 @@ export type LinkedInAccountMaxAggregateOutputType = {
   lastRequestId: string | null
   lastLoginAt: Date | null
   loginCount: number | null
+  contentAutomationStatus: string | null
+  contentAutomationStartedAt: Date | null
+  contentAutomationStoppedAt: Date | null
+  contentAutomationUpdatedAt: Date | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -107,6 +115,10 @@ export type LinkedInAccountCountAggregateOutputType = {
   lastRequestId: number
   lastLoginAt: number
   loginCount: number
+  contentAutomationStatus: number
+  contentAutomationStartedAt: number
+  contentAutomationStoppedAt: number
+  contentAutomationUpdatedAt: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -142,6 +154,10 @@ export type LinkedInAccountMinAggregateInputType = {
   lastRequestId?: true
   lastLoginAt?: true
   loginCount?: true
+  contentAutomationStatus?: true
+  contentAutomationStartedAt?: true
+  contentAutomationStoppedAt?: true
+  contentAutomationUpdatedAt?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -167,6 +183,10 @@ export type LinkedInAccountMaxAggregateInputType = {
   lastRequestId?: true
   lastLoginAt?: true
   loginCount?: true
+  contentAutomationStatus?: true
+  contentAutomationStartedAt?: true
+  contentAutomationStoppedAt?: true
+  contentAutomationUpdatedAt?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -194,6 +214,10 @@ export type LinkedInAccountCountAggregateInputType = {
   lastRequestId?: true
   lastLoginAt?: true
   loginCount?: true
+  contentAutomationStatus?: true
+  contentAutomationStartedAt?: true
+  contentAutomationStoppedAt?: true
+  contentAutomationUpdatedAt?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -308,6 +332,10 @@ export type LinkedInAccountGroupByOutputType = {
   lastRequestId: string | null
   lastLoginAt: Date
   loginCount: number
+  contentAutomationStatus: string
+  contentAutomationStartedAt: Date | null
+  contentAutomationStoppedAt: Date | null
+  contentAutomationUpdatedAt: Date | null
   createdAt: Date
   updatedAt: Date
   _count: LinkedInAccountCountAggregateOutputType | null
@@ -358,6 +386,10 @@ export type LinkedInAccountWhereInput = {
   lastRequestId?: Prisma.StringNullableFilter<"LinkedInAccount"> | string | null
   lastLoginAt?: Prisma.DateTimeFilter<"LinkedInAccount"> | Date | string
   loginCount?: Prisma.IntFilter<"LinkedInAccount"> | number
+  contentAutomationStatus?: Prisma.StringFilter<"LinkedInAccount"> | string
+  contentAutomationStartedAt?: Prisma.DateTimeNullableFilter<"LinkedInAccount"> | Date | string | null
+  contentAutomationStoppedAt?: Prisma.DateTimeNullableFilter<"LinkedInAccount"> | Date | string | null
+  contentAutomationUpdatedAt?: Prisma.DateTimeNullableFilter<"LinkedInAccount"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"LinkedInAccount"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"LinkedInAccount"> | Date | string
 }
@@ -385,6 +417,10 @@ export type LinkedInAccountOrderByWithRelationInput = {
   lastRequestId?: Prisma.SortOrderInput | Prisma.SortOrder
   lastLoginAt?: Prisma.SortOrder
   loginCount?: Prisma.SortOrder
+  contentAutomationStatus?: Prisma.SortOrder
+  contentAutomationStartedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  contentAutomationStoppedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  contentAutomationUpdatedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -415,6 +451,10 @@ export type LinkedInAccountWhereUniqueInput = Prisma.AtLeast<{
   lastRequestId?: Prisma.StringNullableFilter<"LinkedInAccount"> | string | null
   lastLoginAt?: Prisma.DateTimeFilter<"LinkedInAccount"> | Date | string
   loginCount?: Prisma.IntFilter<"LinkedInAccount"> | number
+  contentAutomationStatus?: Prisma.StringFilter<"LinkedInAccount"> | string
+  contentAutomationStartedAt?: Prisma.DateTimeNullableFilter<"LinkedInAccount"> | Date | string | null
+  contentAutomationStoppedAt?: Prisma.DateTimeNullableFilter<"LinkedInAccount"> | Date | string | null
+  contentAutomationUpdatedAt?: Prisma.DateTimeNullableFilter<"LinkedInAccount"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"LinkedInAccount"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"LinkedInAccount"> | Date | string
 }, "id" | "linkedinMemberId">
@@ -442,6 +482,10 @@ export type LinkedInAccountOrderByWithAggregationInput = {
   lastRequestId?: Prisma.SortOrderInput | Prisma.SortOrder
   lastLoginAt?: Prisma.SortOrder
   loginCount?: Prisma.SortOrder
+  contentAutomationStatus?: Prisma.SortOrder
+  contentAutomationStartedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  contentAutomationStoppedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  contentAutomationUpdatedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.LinkedInAccountCountOrderByAggregateInput
@@ -477,6 +521,10 @@ export type LinkedInAccountScalarWhereWithAggregatesInput = {
   lastRequestId?: Prisma.StringNullableWithAggregatesFilter<"LinkedInAccount"> | string | null
   lastLoginAt?: Prisma.DateTimeWithAggregatesFilter<"LinkedInAccount"> | Date | string
   loginCount?: Prisma.IntWithAggregatesFilter<"LinkedInAccount"> | number
+  contentAutomationStatus?: Prisma.StringWithAggregatesFilter<"LinkedInAccount"> | string
+  contentAutomationStartedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"LinkedInAccount"> | Date | string | null
+  contentAutomationStoppedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"LinkedInAccount"> | Date | string | null
+  contentAutomationUpdatedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"LinkedInAccount"> | Date | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"LinkedInAccount"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"LinkedInAccount"> | Date | string
 }
@@ -504,6 +552,10 @@ export type LinkedInAccountCreateInput = {
   lastRequestId?: string | null
   lastLoginAt: Date | string
   loginCount?: number
+  contentAutomationStatus?: string
+  contentAutomationStartedAt?: Date | string | null
+  contentAutomationStoppedAt?: Date | string | null
+  contentAutomationUpdatedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -531,6 +583,10 @@ export type LinkedInAccountUncheckedCreateInput = {
   lastRequestId?: string | null
   lastLoginAt: Date | string
   loginCount?: number
+  contentAutomationStatus?: string
+  contentAutomationStartedAt?: Date | string | null
+  contentAutomationStoppedAt?: Date | string | null
+  contentAutomationUpdatedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -558,6 +614,10 @@ export type LinkedInAccountUpdateInput = {
   lastRequestId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   lastLoginAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   loginCount?: Prisma.IntFieldUpdateOperationsInput | number
+  contentAutomationStatus?: Prisma.StringFieldUpdateOperationsInput | string
+  contentAutomationStartedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  contentAutomationStoppedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  contentAutomationUpdatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -585,6 +645,10 @@ export type LinkedInAccountUncheckedUpdateInput = {
   lastRequestId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   lastLoginAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   loginCount?: Prisma.IntFieldUpdateOperationsInput | number
+  contentAutomationStatus?: Prisma.StringFieldUpdateOperationsInput | string
+  contentAutomationStartedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  contentAutomationStoppedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  contentAutomationUpdatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -612,6 +676,10 @@ export type LinkedInAccountCreateManyInput = {
   lastRequestId?: string | null
   lastLoginAt: Date | string
   loginCount?: number
+  contentAutomationStatus?: string
+  contentAutomationStartedAt?: Date | string | null
+  contentAutomationStoppedAt?: Date | string | null
+  contentAutomationUpdatedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -639,6 +707,10 @@ export type LinkedInAccountUpdateManyMutationInput = {
   lastRequestId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   lastLoginAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   loginCount?: Prisma.IntFieldUpdateOperationsInput | number
+  contentAutomationStatus?: Prisma.StringFieldUpdateOperationsInput | string
+  contentAutomationStartedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  contentAutomationStoppedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  contentAutomationUpdatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -666,6 +738,10 @@ export type LinkedInAccountUncheckedUpdateManyInput = {
   lastRequestId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   lastLoginAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   loginCount?: Prisma.IntFieldUpdateOperationsInput | number
+  contentAutomationStatus?: Prisma.StringFieldUpdateOperationsInput | string
+  contentAutomationStartedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  contentAutomationStoppedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  contentAutomationUpdatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -693,6 +769,10 @@ export type LinkedInAccountCountOrderByAggregateInput = {
   lastRequestId?: Prisma.SortOrder
   lastLoginAt?: Prisma.SortOrder
   loginCount?: Prisma.SortOrder
+  contentAutomationStatus?: Prisma.SortOrder
+  contentAutomationStartedAt?: Prisma.SortOrder
+  contentAutomationStoppedAt?: Prisma.SortOrder
+  contentAutomationUpdatedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -722,6 +802,10 @@ export type LinkedInAccountMaxOrderByAggregateInput = {
   lastRequestId?: Prisma.SortOrder
   lastLoginAt?: Prisma.SortOrder
   loginCount?: Prisma.SortOrder
+  contentAutomationStatus?: Prisma.SortOrder
+  contentAutomationStartedAt?: Prisma.SortOrder
+  contentAutomationStoppedAt?: Prisma.SortOrder
+  contentAutomationUpdatedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -747,6 +831,10 @@ export type LinkedInAccountMinOrderByAggregateInput = {
   lastRequestId?: Prisma.SortOrder
   lastLoginAt?: Prisma.SortOrder
   loginCount?: Prisma.SortOrder
+  contentAutomationStatus?: Prisma.SortOrder
+  contentAutomationStartedAt?: Prisma.SortOrder
+  contentAutomationStoppedAt?: Prisma.SortOrder
+  contentAutomationUpdatedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -808,6 +896,10 @@ export type LinkedInAccountSelect<ExtArgs extends runtime.Types.Extensions.Inter
   lastRequestId?: boolean
   lastLoginAt?: boolean
   loginCount?: boolean
+  contentAutomationStatus?: boolean
+  contentAutomationStartedAt?: boolean
+  contentAutomationStoppedAt?: boolean
+  contentAutomationUpdatedAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }, ExtArgs["result"]["linkedInAccount"]>
@@ -835,6 +927,10 @@ export type LinkedInAccountSelectCreateManyAndReturn<ExtArgs extends runtime.Typ
   lastRequestId?: boolean
   lastLoginAt?: boolean
   loginCount?: boolean
+  contentAutomationStatus?: boolean
+  contentAutomationStartedAt?: boolean
+  contentAutomationStoppedAt?: boolean
+  contentAutomationUpdatedAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }, ExtArgs["result"]["linkedInAccount"]>
@@ -862,6 +958,10 @@ export type LinkedInAccountSelectUpdateManyAndReturn<ExtArgs extends runtime.Typ
   lastRequestId?: boolean
   lastLoginAt?: boolean
   loginCount?: boolean
+  contentAutomationStatus?: boolean
+  contentAutomationStartedAt?: boolean
+  contentAutomationStoppedAt?: boolean
+  contentAutomationUpdatedAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }, ExtArgs["result"]["linkedInAccount"]>
@@ -889,11 +989,15 @@ export type LinkedInAccountSelectScalar = {
   lastRequestId?: boolean
   lastLoginAt?: boolean
   loginCount?: boolean
+  contentAutomationStatus?: boolean
+  contentAutomationStartedAt?: boolean
+  contentAutomationStoppedAt?: boolean
+  contentAutomationUpdatedAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type LinkedInAccountOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "linkedinMemberId" | "authorUrn" | "email" | "emailVerified" | "fullName" | "givenName" | "familyName" | "pictureUrl" | "locale" | "accessToken" | "accessTokenExpiresAt" | "tokenType" | "scopesJson" | "idToken" | "refreshToken" | "refreshTokenExpiresAt" | "profileJson" | "lastState" | "lastRequestId" | "lastLoginAt" | "loginCount" | "createdAt" | "updatedAt", ExtArgs["result"]["linkedInAccount"]>
+export type LinkedInAccountOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "linkedinMemberId" | "authorUrn" | "email" | "emailVerified" | "fullName" | "givenName" | "familyName" | "pictureUrl" | "locale" | "accessToken" | "accessTokenExpiresAt" | "tokenType" | "scopesJson" | "idToken" | "refreshToken" | "refreshTokenExpiresAt" | "profileJson" | "lastState" | "lastRequestId" | "lastLoginAt" | "loginCount" | "contentAutomationStatus" | "contentAutomationStartedAt" | "contentAutomationStoppedAt" | "contentAutomationUpdatedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["linkedInAccount"]>
 
 export type $LinkedInAccountPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "LinkedInAccount"
@@ -921,6 +1025,10 @@ export type $LinkedInAccountPayload<ExtArgs extends runtime.Types.Extensions.Int
     lastRequestId: string | null
     lastLoginAt: Date
     loginCount: number
+    contentAutomationStatus: string
+    contentAutomationStartedAt: Date | null
+    contentAutomationStoppedAt: Date | null
+    contentAutomationUpdatedAt: Date | null
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["linkedInAccount"]>
@@ -1368,6 +1476,10 @@ export interface LinkedInAccountFieldRefs {
   readonly lastRequestId: Prisma.FieldRef<"LinkedInAccount", 'String'>
   readonly lastLoginAt: Prisma.FieldRef<"LinkedInAccount", 'DateTime'>
   readonly loginCount: Prisma.FieldRef<"LinkedInAccount", 'Int'>
+  readonly contentAutomationStatus: Prisma.FieldRef<"LinkedInAccount", 'String'>
+  readonly contentAutomationStartedAt: Prisma.FieldRef<"LinkedInAccount", 'DateTime'>
+  readonly contentAutomationStoppedAt: Prisma.FieldRef<"LinkedInAccount", 'DateTime'>
+  readonly contentAutomationUpdatedAt: Prisma.FieldRef<"LinkedInAccount", 'DateTime'>
   readonly createdAt: Prisma.FieldRef<"LinkedInAccount", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"LinkedInAccount", 'DateTime'>
 }

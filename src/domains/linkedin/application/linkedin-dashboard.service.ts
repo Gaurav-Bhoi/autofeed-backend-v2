@@ -55,6 +55,10 @@ export class LinkedInDashboardService {
           refreshTokenExpiresAtMs === null
             ? null
             : Number.isNaN(refreshTokenExpiresAtMs) || refreshTokenExpiresAtMs <= now,
+        contentAutomationStatus: account.contentAutomationStatus,
+        contentAutomationStartedAt: account.contentAutomationStartedAt,
+        contentAutomationStoppedAt: account.contentAutomationStoppedAt,
+        contentAutomationUpdatedAt: account.contentAutomationUpdatedAt,
         lastLoginAt: account.lastLoginAt,
         loginCount: account.loginCount,
         createdAt: account.createdAt,

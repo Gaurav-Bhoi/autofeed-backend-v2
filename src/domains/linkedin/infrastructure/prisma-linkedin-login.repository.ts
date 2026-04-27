@@ -6,6 +6,8 @@ import type {
 import type { LinkedInLoginRepository } from '../domain/linkedin-login.repository'
 import type {
   FindLinkedInStoredAccountInput,
+  LinkedInContentAutomationStatus,
+  LinkedInPublishAccount,
   LinkedInStoredAccount,
   PersistLinkedInLoginInput,
 } from '../domain/linkedin.entities'
@@ -99,6 +101,50 @@ export class PrismaLinkedInLoginRepository implements LinkedInLoginRepository {
 
     return account ? toStoredAccount(account) : null
   }
+
+  async findPublishableAccount(
+    input?: FindLinkedInStoredAccountInput,
+  ): Promise<LinkedInPublishAccount | null> {
+    const where = buildWhereInput(input)
+    const account = await this.prisma.linkedInAccount.findFirst({
+      ...(where
+        ? {
+            where,
+          }
+        : {}),
+      orderBy: {
+        lastLoginAt: 'desc',
+      },
+    })
+
+    return account ? toPublishAccount(account) : null
+  }
+
+  async updateContentAutomationStatus(input: {
+    accountId: string
+    status: LinkedInContentAutomationStatus
+    changedAt: string
+  }): Promise<LinkedInStoredAccount | null> {
+    const changedAt = new Date(input.changedAt)
+    const account = await this.prisma.linkedInAccount.update({
+      where: {
+        id: input.accountId,
+      },
+      data: {
+        contentAutomationStatus: input.status,
+        contentAutomationUpdatedAt: changedAt,
+        ...(input.status === 'start'
+          ? {
+              contentAutomationStartedAt: changedAt,
+            }
+          : {
+              contentAutomationStoppedAt: changedAt,
+            }),
+      },
+    })
+
+    return toStoredAccount(account)
+  }
 }
 
 function buildWhereInput(input?: FindLinkedInStoredAccountInput) {
@@ -166,11 +212,40 @@ function toStoredAccount(account: PrismaLinkedInAccount): LinkedInStoredAccount 
       account.refreshTokenExpiresAt === null
         ? null
         : account.refreshTokenExpiresAt.toISOString(),
+    contentAutomationStatus: normalizeContentAutomationStatus(
+      account.contentAutomationStatus,
+    ),
+    contentAutomationStartedAt:
+      account.contentAutomationStartedAt === null
+        ? null
+        : account.contentAutomationStartedAt.toISOString(),
+    contentAutomationStoppedAt:
+      account.contentAutomationStoppedAt === null
+        ? null
+        : account.contentAutomationStoppedAt.toISOString(),
+    contentAutomationUpdatedAt:
+      account.contentAutomationUpdatedAt === null
+        ? null
+        : account.contentAutomationUpdatedAt.toISOString(),
     lastLoginAt: account.lastLoginAt.toISOString(),
     loginCount: account.loginCount,
     createdAt: account.createdAt.toISOString(),
     updatedAt: account.updatedAt.toISOString(),
   }
+}
+
+function toPublishAccount(account: PrismaLinkedInAccount): LinkedInPublishAccount {
+  return {
+    ...toStoredAccount(account),
+    accessToken: account.accessToken,
+    tokenType: account.tokenType,
+  }
+}
+
+function normalizeContentAutomationStatus(
+  status: string,
+): LinkedInContentAutomationStatus {
+  return status === 'start' ? 'start' : 'stop'
 }
 
 function readStringArray(value: Prisma.JsonValue): string[] {

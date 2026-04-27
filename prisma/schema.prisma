@@ -32,9 +32,40 @@ model LinkedInAccount {
   lastRequestId         String?   @map("last_request_id")
   lastLoginAt           DateTime  @map("last_login_at") @db.Timestamptz(6)
   loginCount            Int       @default(1) @map("login_count")
+  contentAutomationStatus    String    @default("stop") @map("content_automation_status")
+  contentAutomationStartedAt DateTime? @map("content_automation_started_at") @db.Timestamptz(6)
+  contentAutomationStoppedAt DateTime? @map("content_automation_stopped_at") @db.Timestamptz(6)
+  contentAutomationUpdatedAt DateTime? @map("content_automation_updated_at") @db.Timestamptz(6)
   createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([lastLoginAt(sort: Desc)], map: "linkedin_accounts_last_login_at_idx")
   @@map("linkedin_accounts")
+}
+
+model LinkedInContentHistory {
+  id             String   @id
+  contentKey     String   @unique @map("content_key")
+  section        String
+  itemId         String?  @map("item_id")
+  sourceUrl      String?  @map("source_url")
+  imageUrl       String?  @map("image_url")
+  contentInputJson Json   @default("{}") @map("content_input_json")
+  aiStatus       String   @default("reserved") @map("ai_status")
+  runpodInputMode String  @default("image-url") @map("runpod_input_mode")
+  runpodAttempt   Int     @default(0) @map("runpod_attempt")
+  runpodJobId    String?  @unique @map("runpod_job_id")
+  runpodStatus   String?  @map("runpod_status")
+  aiOutputJson   Json?    @map("ai_output_json")
+  aiError        String?  @map("ai_error")
+  linkedinPostId String?  @map("linkedin_post_id")
+  accountId      String?  @map("account_id")
+  linkedinMemberId String? @map("linkedin_member_id")
+  publishedAt    DateTime @map("published_at") @db.Timestamptz(6)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([aiStatus, createdAt], map: "linkedin_content_history_ai_status_created_at_idx")
+  @@index([section, publishedAt(sort: Desc)], map: "linkedin_content_history_section_published_at_idx")
+  @@map("linkedin_content_history")
 }

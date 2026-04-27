@@ -18,6 +18,30 @@ export async function parseJsonObject<T extends Record<string, unknown>>(
   return payload as T
 }
 
+export async function parseOptionalJsonObject<
+  T extends Record<string, unknown>,
+>(request: Request): Promise<T | null> {
+  const body = await request.text()
+
+  if (!body.trim()) {
+    return null
+  }
+
+  let payload: unknown
+
+  try {
+    payload = JSON.parse(body) as unknown
+  } catch {
+    throw badRequest('Request body must be valid JSON')
+  }
+
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw badRequest('Request body must be a JSON object')
+  }
+
+  return payload as T
+}
+
 export function getBearerToken(authorizationHeader?: string | null) {
   if (!authorizationHeader) {
     throw unauthorized('Missing Authorization header')

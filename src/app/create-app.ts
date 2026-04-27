@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
 import { prettyJSON } from 'hono/pretty-json'
 import { requestId } from 'hono/request-id'
@@ -13,6 +14,22 @@ export function createApp() {
 
   app.use('*', requestId())
   app.use('*', prettyJSON())
+  app.use(
+    '/api/*',
+    cors({
+      origin: (origin) => origin || '*',
+      allowMethods: ['GET', 'POST', 'OPTIONS'],
+      allowHeaders: [
+        'Accept',
+        'Authorization',
+        'Content-Type',
+        'X-App-Environment',
+        'X-Requested-With',
+      ],
+      exposeHeaders: ['X-Request-Id'],
+      maxAge: 600,
+    }),
+  )
 
   app.use('*', async (c, next) => {
     const startedAt = performance.now()
@@ -57,6 +74,16 @@ export function createApp() {
         linkedinProfile: '/api/linkedin/profile',
         linkedinPost: '/api/linkedin/posts',
         contentTemplates: '/api/content/templates',
+        contentLinkedIn: '/api/content/linkedin',
+        contentLinkedInStatus: '/api/content/linkedin/status',
+        contentLinkedInAutomation: '/api/content/linkedin/automation',
+        contentLinkedInAutomationStatus: '/api/content/linkedin/automation/status',
+        contentLinkedInAutomationStart: '/api/content/linkedin/automation/start',
+        contentLinkedInAutomationStop: '/api/content/linkedin/automation/stop',
+        contentLinkedInDrafts: '/api/content/linkedin/drafts',
+        contentLinkedInPosts: '/api/content/linkedin/posts',
+        contentLinkedInSingleAiPost: '/api/content/linkedin/posts/single',
+        contentLinkedInNewsCardImage: '/api/content/linkedin/news-card.png',
       },
       requestId: c.get('requestId'),
     })

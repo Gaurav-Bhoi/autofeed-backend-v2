@@ -14,6 +14,14 @@ export const LINKEDIN_VISIBILITY_VALUES = [
 
 export type LinkedInVisibility = (typeof LINKEDIN_VISIBILITY_VALUES)[number]
 
+export const LINKEDIN_CONTENT_AUTOMATION_STATUS_VALUES = [
+  'start',
+  'stop',
+] as const
+
+export type LinkedInContentAutomationStatus =
+  (typeof LINKEDIN_CONTENT_AUTOMATION_STATUS_VALUES)[number]
+
 export type LinkedInTokenSet = {
   accessToken: string
   expiresIn: number
@@ -56,10 +64,19 @@ export type LinkedInStoredAccount = {
   scopes: string[]
   accessTokenExpiresAt: string
   refreshTokenExpiresAt: string | null
+  contentAutomationStatus: LinkedInContentAutomationStatus
+  contentAutomationStartedAt: string | null
+  contentAutomationStoppedAt: string | null
+  contentAutomationUpdatedAt: string | null
   lastLoginAt: string
   loginCount: number
   createdAt: string
   updatedAt: string
+}
+
+export type LinkedInPublishAccount = LinkedInStoredAccount & {
+  accessToken: string
+  tokenType: string
 }
 
 export type FindLinkedInStoredAccountInput = {
@@ -83,6 +100,10 @@ export type LinkedInDashboardAccount = {
   refreshTokenAvailable: boolean
   refreshTokenExpiresAt: string | null
   refreshTokenExpired: boolean | null
+  contentAutomationStatus: LinkedInContentAutomationStatus
+  contentAutomationStartedAt: string | null
+  contentAutomationStoppedAt: string | null
+  contentAutomationUpdatedAt: string | null
   lastLoginAt: string
   loginCount: number
   createdAt: string
@@ -113,7 +134,26 @@ export type LinkedInPostInput = {
   articleUrl?: string
   articleTitle?: string
   articleDescription?: string
+  imageUrl?: string
+  imageTitle?: string
+  imageDescription?: string
+  imageAltText?: string
   visibility?: LinkedInVisibility
+}
+
+export type LinkedInCreatePostInput = Omit<LinkedInPostInput, 'imageUrl'> & {
+  imageAssetUrn?: string
+}
+
+export type LinkedInImageUploadInput = {
+  imageUrl: string
+}
+
+export type LinkedInUploadedImage = {
+  asset: string
+  uploadUrl: string
+  contentType: string
+  byteLength: number
 }
 
 export type LinkedInPublishedPost = {
@@ -122,6 +162,8 @@ export type LinkedInPublishedPost = {
   lifecycleState: 'PUBLISHED'
   visibility: LinkedInVisibility
   commentary: string
+  mediaCategory: 'NONE' | 'ARTICLE' | 'IMAGE'
+  imageAssetUrn: string | null
 }
 
 export type LinkedInAuthConfig = {
@@ -217,27 +259,53 @@ export function toLinkedInProfile(
 
 export function buildLinkedInPostPayload(
   authorUrn: string,
-  input: LinkedInPostInput,
+  input: LinkedInCreatePostInput,
 ) {
+  const mediaCategory = input.imageAssetUrn
+    ? 'IMAGE'
+    : input.articleUrl
+      ? 'ARTICLE'
+      : 'NONE'
   const media =
-    input.articleUrl === undefined
-      ? []
-      : [
+    mediaCategory === 'IMAGE'
+      ? [
           {
             status: 'READY',
-            originalUrl: input.articleUrl,
-            title: {
-              text: input.articleTitle ?? input.articleUrl,
-            },
-            ...(input.articleDescription
+            media: input.imageAssetUrn,
+            ...(input.imageTitle
+              ? {
+                  title: {
+                    text: input.imageTitle,
+                  },
+                }
+              : {}),
+            ...(input.imageDescription || input.imageAltText
               ? {
                   description: {
-                    text: input.articleDescription,
+                    text: input.imageDescription ?? input.imageAltText,
                   },
                 }
               : {}),
           },
         ]
+      : input.articleUrl === undefined
+        ? []
+        : [
+            {
+              status: 'READY',
+              originalUrl: input.articleUrl,
+              title: {
+                text: input.articleTitle ?? input.articleUrl,
+              },
+              ...(input.articleDescription
+                ? {
+                    description: {
+                      text: input.articleDescription,
+                    },
+                  }
+                : {}),
+            },
+          ]
 
   return {
     author: authorUrn,
@@ -247,7 +315,7 @@ export function buildLinkedInPostPayload(
         shareCommentary: {
           text: input.text,
         },
-        shareMediaCategory: input.articleUrl ? 'ARTICLE' : 'NONE',
+        shareMediaCategory: mediaCategory,
         media,
       },
     },

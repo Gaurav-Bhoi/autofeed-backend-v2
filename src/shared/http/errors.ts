@@ -8,6 +8,10 @@ export function unauthorized(message = 'Unauthorized') {
   return new HTTPException(401, { message })
 }
 
+export function forbidden(message = 'Forbidden') {
+  return new HTTPException(403, { message })
+}
+
 export function badGateway(message: string) {
   return new HTTPException(502, { message })
 }

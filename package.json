@@ -29,6 +29,8 @@
     "@neondatabase/serverless": "^1.1.0",
     "@prisma/adapter-neon": "^7.8.0",
     "@prisma/client": "^7.8.0",
+    "@resvg/resvg-wasm": "^2.6.2",
+    "fast-xml-parser": "^5.7.2",
     "hono": "^4.12.14",
     "prisma": "^7.8.0"
   },
