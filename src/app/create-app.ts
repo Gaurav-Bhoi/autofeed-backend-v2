@@ -9,6 +9,10 @@ import { handleLinkedInCallback } from '../domains/linkedin/presentation/linkedi
 import { createApiRouter } from './create-api-router'
 import type { AppEnv } from './types'
 
+type CorsEnv = Env & {
+  ALLOWED_ORIGINS?: string
+}
+
 export function createApp() {
   const app = new Hono<AppEnv>()
 
@@ -17,7 +21,7 @@ export function createApp() {
   app.use(
     '/api/*',
     cors({
-      origin: (origin) => origin || '*',
+      origin: (origin, c) => readAllowedCorsOrigin(origin, c.env),
       allowMethods: ['GET', 'POST', 'OPTIONS'],
       allowHeaders: [
         'Accept',
@@ -144,4 +148,27 @@ export function createApp() {
   })
 
   return app
+}
+
+function readAllowedCorsOrigin(origin: string, env: Env) {
+  if (!origin) {
+    return '*'
+  }
+
+  return readAllowedOrigins(env).has(origin) ? origin : null
+}
+
+function readAllowedOrigins(env: Env) {
+  const configured = (env as CorsEnv).ALLOWED_ORIGINS
+    ?.split(/[,\s|]+/)
+    .map((value) => value.trim())
+    .filter(Boolean)
+
+  return new Set([
+    'https://autofeed.io',
+    'https://www.autofeed.io',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    ...(configured ?? []),
+  ])
 }

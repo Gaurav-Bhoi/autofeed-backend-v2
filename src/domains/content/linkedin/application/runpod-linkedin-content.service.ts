@@ -156,7 +156,10 @@ export class RunPodLinkedInContentService {
     const payload = (await readJson(response)) as RunPodApiResponse | null
 
     if (!response.ok) {
-      throw badGateway(readRunPodError(payload) ?? fallback)
+      throw badGateway(
+        readRunPodError(payload) ??
+          `${fallback} (${formatResponseStatus(response)})`,
+      )
     }
 
     if (!payload?.id) {
@@ -256,11 +259,20 @@ async function createRunPodMessages(
   },
   fetcher: typeof fetch,
 ) {
+  const contentInput = input.contentInput
   const context = [
     `Section: ${input.section}`,
-    `Topic: ${input.contentInput.topic}`,
-    input.contentInput.objective
-      ? `Objective: ${input.contentInput.objective}`
+    `Topic: ${contentInput.topic}`,
+    contentInput.audience ? `Audience: ${contentInput.audience}` : '',
+    contentInput.objective ? `Objective: ${contentInput.objective}` : '',
+    contentInput.tone ? `Tone: ${contentInput.tone}` : '',
+    contentInput.imageTitle ? `Image title: ${contentInput.imageTitle}` : '',
+    contentInput.imageDescription
+      ? `Image description: ${contentInput.imageDescription}`
+      : '',
+    formatKeyPoints(contentInput.keyPoints),
+    contentInput.callToAction
+      ? `Call to action: ${contentInput.callToAction}`
       : '',
     input.sourceUrl ? `Source URL: ${input.sourceUrl}` : '',
     `Image URL: ${input.imageUrl}`,
@@ -268,7 +280,7 @@ async function createRunPodMessages(
     .filter(Boolean)
     .join('\n')
   const systemPrompt =
-    'You are an expert LinkedIn content creator for tech memes and broad news stories, including business, politics, geopolitics, regional affairs, science, and technology. Read the image and context carefully. For news, do not invent facts beyond the title, image, and source context. Output only one valid compact JSON object, with no markdown fence and no text outside JSON. Required keys: caption, post_content, hashtags. caption must be one short sentence. post_content must be 120 to 180 words, plain text, no markdown, no headings, no numbered list, no hashtags, and no emoji. hashtags must be an array of 4 to 6 relevant hashtag strings.'
+    'You are an expert LinkedIn content creator for tech memes and broad news stories, including business, politics, geopolitics, regional affairs, science, and technology. Read the image and context carefully. For tech memes, keep the writing genuinely witty and preserve any source channel such as r/ProgrammerHumor exactly once when the context asks for it. For news, do not invent facts beyond the title, image, and source context. Output only one valid compact JSON object, with no markdown fence and no text outside JSON. Required keys: caption, post_content, hashtags. caption must be one short sentence. post_content must be 120 to 180 words, plain text, no markdown, no headings, no numbered list, no hashtags, and no emoji. hashtags must be an array of 4 to 6 relevant hashtag strings.'
 
   if (input.imageInputMode === 'text-url') {
     return [
@@ -309,6 +321,17 @@ async function createRunPodMessages(
       ],
     },
   ]
+}
+
+function formatKeyPoints(keyPoints: string[] | undefined) {
+  const points = keyPoints
+    ?.map((point) => point.trim())
+    .filter(Boolean)
+    .slice(0, 8)
+
+  return points && points.length > 0
+    ? `Key points:\n${points.map((point) => `- ${point}`).join('\n')}`
+    : ''
 }
 
 async function createImageDataUrl(imageUrl: string, fetcher: typeof fetch) {
@@ -554,6 +577,12 @@ function readRunPodError(payload: RunPodApiResponse | null) {
   }
 
   return null
+}
+
+function formatResponseStatus(response: Response) {
+  const statusText = response.statusText?.trim()
+
+  return statusText ? `${response.status} ${statusText}` : `${response.status}`
 }
 
 function readPositiveInteger(value: string | undefined, fallback: number) {

@@ -47,8 +47,11 @@ export type LinkedInProfile = {
 export type LinkedInLoginResult = {
   authorizationUrl: string
   state: string
+  stateExpiresAt: string
   scopes: string[]
   redirectUri: string
+  returnUri: string | null
+  clientState: string | null
 }
 
 export type LinkedInStoredAccount = {
@@ -127,6 +130,8 @@ export type LinkedInCallbackResult = {
   tokens: LinkedInTokenSet
   profile: LinkedInProfile
   storedAccount: LinkedInStoredAccount
+  clientState: string | null
+  returnUri: string | null
 }
 
 export type LinkedInPostInput = {
@@ -193,7 +198,7 @@ export type LinkedInUserInfoResponse = {
   picture?: string
   email?: string
   email_verified?: boolean
-  locale?: string
+  locale?: unknown
   message?: string
 }
 
@@ -253,8 +258,34 @@ export function toLinkedInProfile(
     email: profile.email ?? null,
     emailVerified:
       typeof profile.email_verified === 'boolean' ? profile.email_verified : null,
-    locale: profile.locale ?? null,
+    locale: normalizeLinkedInLocale(profile.locale),
   }
+}
+
+function normalizeLinkedInLocale(locale: unknown) {
+  if (typeof locale === 'string') {
+    const trimmed = locale.trim()
+
+    return trimmed || null
+  }
+
+  if (!locale || typeof locale !== 'object' || Array.isArray(locale)) {
+    return null
+  }
+
+  const value = locale as {
+    country?: unknown
+    language?: unknown
+  }
+  const language =
+    typeof value.language === 'string' ? value.language.trim() : ''
+  const country = typeof value.country === 'string' ? value.country.trim() : ''
+
+  if (language && country) {
+    return `${language}-${country}`
+  }
+
+  return language || country || null
 }
 
 export function buildLinkedInPostPayload(

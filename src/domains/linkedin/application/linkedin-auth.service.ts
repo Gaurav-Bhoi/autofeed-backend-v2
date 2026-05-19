@@ -8,31 +8,51 @@ import {
   type LinkedInLoginResult,
   normalizeLinkedInScopes,
 } from '../domain/linkedin.entities'
+import { LinkedInOAuthStateService } from './linkedin-oauth-state.service'
 
 export class LinkedInAuthService {
   constructor(
     private readonly gateway: LinkedInGateway,
     private readonly config: LinkedInAuthConfig,
     private readonly loginRepository?: LinkedInLoginRepository | null,
+    private readonly oauthStateService?: LinkedInOAuthStateService,
   ) {}
 
-  createLogin(options?: {
+  async createLogin(options?: {
     state?: string
     scopes?: string[]
-  }): LinkedInLoginResult {
-    const state = options?.state?.trim() || crypto.randomUUID()
+    returnUri?: string
+  }): Promise<LinkedInLoginResult> {
     const scopes = normalizeLinkedInScopes(options?.scopes)
+    const oauthStateInput: {
+      clientState?: string
+      returnUri?: string
+    } = {}
+    const clientState = options?.state?.trim()
+
+    if (clientState) {
+      oauthStateInput.clientState = clientState
+    }
+
+    if (options?.returnUri) {
+      oauthStateInput.returnUri = options.returnUri
+    }
+
+    const oauthState = await this.getOAuthStateService().create(oauthStateInput)
 
     return {
       authorizationUrl: buildLinkedInAuthorizationUrl({
         clientId: this.config.clientId,
         redirectUri: this.config.redirectUri,
         scopes,
-        state,
+        state: oauthState.state,
       }),
-      state,
+      state: oauthState.state,
+      stateExpiresAt: oauthState.expiresAt,
       scopes,
       redirectUri: this.config.redirectUri,
+      returnUri: options?.returnUri ?? null,
+      clientState: clientState || null,
     }
   }
 
@@ -43,6 +63,9 @@ export class LinkedInAuthService {
       requestId?: string | null
     },
   ): Promise<LinkedInCallbackResult> {
+    const oauthState = await this.getOAuthStateService().verify(
+      context?.state ?? '',
+    )
     const tokens = await this.gateway.exchangeAuthorizationCode(code)
     const profile = await this.gateway.getCurrentProfile(tokens.accessToken)
 
@@ -53,7 +76,7 @@ export class LinkedInAuthService {
     const storedAccount = await this.loginRepository.saveLogin({
       profile,
       tokens,
-      state: context?.state ?? null,
+      state: oauthState.clientState,
       requestId: context?.requestId ?? null,
       loggedInAt: new Date().toISOString(),
     })
@@ -62,6 +85,16 @@ export class LinkedInAuthService {
       tokens,
       profile,
       storedAccount,
+      clientState: oauthState.clientState,
+      returnUri: oauthState.returnUri,
     }
+  }
+
+  private getOAuthStateService() {
+    if (!this.oauthStateService) {
+      throw serviceUnavailable('Missing LinkedIn OAuth state service')
+    }
+
+    return this.oauthStateService
   }
 }

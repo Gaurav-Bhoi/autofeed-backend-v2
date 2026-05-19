@@ -7,6 +7,7 @@ import type { LinkedInProfileService } from '../../../linkedin/application/linke
 import type {
   FindLinkedInStoredAccountInput,
   LinkedInContentAutomationStatus,
+  LinkedInPublishAccount,
   LinkedInStoredAccount,
 } from '../../../linkedin/domain/linkedin.entities'
 import type { LinkedInLoginRepository } from '../../../linkedin/domain/linkedin-login.repository'
@@ -31,7 +32,7 @@ export class LinkedInAutomationService {
   ) {}
 
   async updateStatus(input: {
-    accessToken: string
+    accessToken?: string
     status: LinkedInContentAutomationStatus
     lookup?: FindLinkedInStoredAccountInput
     changedAt?: Date
@@ -42,10 +43,7 @@ export class LinkedInAutomationService {
       changedAt,
     )
 
-    await this.assertBearerTokenMatchesAccount(
-      input.accessToken,
-      account.linkedinMemberId,
-    )
+    await this.assertAutomationTokenMatchesAccount(account, input.accessToken)
 
     if (!this.loginRepository) {
       throw unauthorized('LinkedIn account is not connected')
@@ -65,15 +63,18 @@ export class LinkedInAutomationService {
     return toAutomationResult(updatedAccount)
   }
 
-  private async assertBearerTokenMatchesAccount(
-    accessToken: string,
-    linkedinMemberId: string,
+  private async assertAutomationTokenMatchesAccount(
+    account: LinkedInPublishAccount,
+    accessToken?: string,
   ) {
-    const profile = await this.profileService.getCurrentProfile(accessToken)
+    const token = accessToken ?? account.accessToken
+    const profile = await this.profileService.getCurrentProfile(token)
 
-    if (profile.id !== linkedinMemberId) {
+    if (profile.id !== account.linkedinMemberId) {
       throw forbidden(
-        'Authorization token does not match the connected LinkedIn account',
+        accessToken
+          ? 'Authorization token does not match the connected LinkedIn account'
+          : 'Stored LinkedIn access token does not match the connected LinkedIn account',
       )
     }
   }

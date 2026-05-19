@@ -12,9 +12,16 @@ import type {
   PersistLinkedInLoginInput,
 } from '../domain/linkedin.entities'
 import { normalizeLinkedInScopes } from '../domain/linkedin.entities'
+import {
+  protectSecret,
+  revealSecret,
+} from '../../../shared/auth/secret-protector'
 
 export class PrismaLinkedInLoginRepository implements LinkedInLoginRepository {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly tokenEncryptionSecret: string,
+  ) {}
 
   async saveLogin(input: PersistLinkedInLoginInput): Promise<LinkedInStoredAccount> {
     const loggedInAt = new Date(input.loggedInAt)
@@ -40,12 +47,12 @@ export class PrismaLinkedInLoginRepository implements LinkedInLoginRepository {
         familyName: input.profile.familyName,
         pictureUrl: input.profile.picture,
         locale: input.profile.locale,
-        accessToken: input.tokens.accessToken,
+        accessToken: await this.protectRequired(input.tokens.accessToken),
         accessTokenExpiresAt,
         tokenType: input.tokens.tokenType,
         scopesJson: toScopesJson(input.tokens.scopes),
-        idToken: input.tokens.idToken,
-        refreshToken: input.tokens.refreshToken,
+        idToken: await this.protect(input.tokens.idToken),
+        refreshToken: await this.protect(input.tokens.refreshToken),
         refreshTokenExpiresAt,
         profileJson: toProfileJson(input),
         lastState: input.state,
@@ -66,12 +73,12 @@ export class PrismaLinkedInLoginRepository implements LinkedInLoginRepository {
         familyName: input.profile.familyName,
         pictureUrl: input.profile.picture,
         locale: input.profile.locale,
-        accessToken: input.tokens.accessToken,
+        accessToken: await this.protectRequired(input.tokens.accessToken),
         accessTokenExpiresAt,
         tokenType: input.tokens.tokenType,
         scopesJson: toScopesJson(input.tokens.scopes),
-        idToken: input.tokens.idToken,
-        refreshToken: input.tokens.refreshToken,
+        idToken: await this.protect(input.tokens.idToken),
+        refreshToken: await this.protect(input.tokens.refreshToken),
         refreshTokenExpiresAt,
         profileJson: toProfileJson(input),
         lastState: input.state,
@@ -117,7 +124,7 @@ export class PrismaLinkedInLoginRepository implements LinkedInLoginRepository {
       },
     })
 
-    return account ? toPublishAccount(account) : null
+    return account ? await this.toPublishAccount(account) : null
   }
 
   async updateContentAutomationStatus(input: {
@@ -144,6 +151,28 @@ export class PrismaLinkedInLoginRepository implements LinkedInLoginRepository {
     })
 
     return toStoredAccount(account)
+  }
+
+  private protect(value: string | null) {
+    return protectSecret(this.tokenEncryptionSecret, value)
+  }
+
+  private async protectRequired(value: string) {
+    return (await protectSecret(this.tokenEncryptionSecret, value)) ?? value
+  }
+
+  private async reveal(value: string) {
+    return revealSecret(this.tokenEncryptionSecret, value)
+  }
+
+  private async toPublishAccount(
+    account: PrismaLinkedInAccount,
+  ): Promise<LinkedInPublishAccount> {
+    return {
+      ...toStoredAccount(account),
+      accessToken: await this.reveal(account.accessToken),
+      tokenType: account.tokenType,
+    }
   }
 }
 
@@ -231,14 +260,6 @@ function toStoredAccount(account: PrismaLinkedInAccount): LinkedInStoredAccount 
     loginCount: account.loginCount,
     createdAt: account.createdAt.toISOString(),
     updatedAt: account.updatedAt.toISOString(),
-  }
-}
-
-function toPublishAccount(account: PrismaLinkedInAccount): LinkedInPublishAccount {
-  return {
-    ...toStoredAccount(account),
-    accessToken: account.accessToken,
-    tokenType: account.tokenType,
   }
 }
 

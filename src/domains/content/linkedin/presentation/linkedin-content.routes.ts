@@ -9,10 +9,13 @@ import type {
 } from '../../../linkedin/domain/linkedin.entities'
 import { badRequest } from '../../../../shared/http/errors'
 import {
-  getBearerToken,
   parseJsonObject,
   parseOptionalJsonObject,
 } from '../../../../shared/http/request'
+import type {
+  LinkedInAccountSessionService,
+  LinkedInAccountSessionScope,
+} from '../../../linkedin/application/linkedin-account-session.service'
 import {
   LinkedInAutomationService,
   readLinkedInAutomationStatus,
@@ -120,9 +123,15 @@ export function createLinkedInContentRouter() {
   })
 
   router.get('/status', async (c) => {
-    const { dashboardService } = await loadLinkedInServices(c.env)
+    const { accountSessionService, dashboardService } =
+      await loadLinkedInServices(c.env)
+    const lookup = await readAuthorizedLinkedInAccountLookup(c, {
+      accountSessionService,
+      lookup: readLinkedInAccountLookupFromQuery(c),
+      requiredScope: 'linkedin:automation',
+    })
     const dashboard = await dashboardService.getDashboard(
-      readLinkedInAccountLookupFromQuery(c),
+      lookup,
     )
 
     return c.json({
@@ -188,19 +197,22 @@ export function createLinkedInContentRouter() {
 
   router.post('/posts', async (c) => {
     const body = await parseJsonObject<LinkedInContentBody>(c.req.raw)
-    const accessToken = getBearerToken(c.req.header('Authorization'))
-    const { loginRepository, postService } = await loadLinkedInServices(c.env)
+    const { accountSessionService, loginRepository, postService } =
+      await loadLinkedInServices(c.env)
+    const lookup = await readAuthorizedLinkedInAccountLookup(c, {
+      accountSessionService,
+      lookup: readLinkedInAccountLookupFromBody(body),
+      requiredScope: 'linkedin:publish',
+    })
     const sessionService = new LinkedInPublishingSessionService(loginRepository)
-    const account = await sessionService.requirePublishableAccount(
-      readLinkedInAccountLookupFromBody(body),
-    )
+    const account = await sessionService.requirePublishableAccount(lookup)
     const contentService = new CreateLinkedInContentService()
     const publishService = new PublishLinkedInContentService(
       contentService,
       postService,
     )
     const result = await publishService.publish(
-      accessToken,
+      account.accessToken,
       readLinkedInContentPublishInput(body),
       {
         expectedLinkedInMemberId: account.linkedinMemberId,
@@ -233,16 +245,19 @@ export function createLinkedInContentRouter() {
 
 async function handleSingleLinkedInAiPost(c: Context<AppEnv>) {
   const body = await readOptionalLinkedInContentBody(c)
-  const accessToken = getBearerToken(c.req.header('Authorization'))
   const {
+    accountSessionService,
     contentHistoryRepository,
     loginRepository,
     postService,
   } = await loadLinkedInServices(c.env)
+  const lookup = await readAuthorizedLinkedInAccountLookup(c, {
+    accountSessionService,
+    lookup: readLinkedInAccountLookupFromBody(body),
+    requiredScope: 'linkedin:publish',
+  })
   const sessionService = new LinkedInPublishingSessionService(loginRepository)
-  const account = await sessionService.requirePublishableAccount(
-    readLinkedInAccountLookupFromBody(body),
-  )
+  const account = await sessionService.requirePublishableAccount(lookup)
   const runPodService = new RunPodLinkedInContentService(
     readRunPodLinkedInContentConfig(c.env),
   )
@@ -254,7 +269,7 @@ async function handleSingleLinkedInAiPost(c: Context<AppEnv>) {
   const input = readSingleLinkedInAiPostInput(
     c.env,
     body,
-    accessToken,
+    account.accessToken,
     account,
     readPublicBaseUrlFromRequest(c),
   )
@@ -274,10 +289,14 @@ async function handleSingleLinkedInAiPost(c: Context<AppEnv>) {
 }
 
 async function handleLinkedInAutomationRead(c: Context<AppEnv>) {
-  const { dashboardService } = await loadLinkedInServices(c.env)
-  const dashboard = await dashboardService.getDashboard(
-    readLinkedInAccountLookupFromQuery(c),
-  )
+  const { accountSessionService, dashboardService } =
+    await loadLinkedInServices(c.env)
+  const lookup = await readAuthorizedLinkedInAccountLookup(c, {
+    accountSessionService,
+    lookup: readLinkedInAccountLookupFromQuery(c),
+    requiredScope: 'linkedin:automation',
+  })
+  const dashboard = await dashboardService.getDashboard(lookup)
 
   return c.json({
     ok: true,
@@ -295,24 +314,23 @@ async function handleLinkedInAutomationUpdate(
   status: 'start' | 'stop',
   body: LinkedInContentBody,
 ) {
-  const accessToken = getBearerToken(c.req.header('Authorization'))
-  const { loginRepository, profileService } = await loadLinkedInServices(c.env)
+  const { accountSessionService, loginRepository, profileService } =
+    await loadLinkedInServices(c.env)
   const service = new LinkedInAutomationService(
     loginRepository,
     profileService,
   )
-  const lookup = readLinkedInAccountLookupFromBody(body)
+  const lookup = await readAuthorizedLinkedInAccountLookup(c, {
+    accountSessionService,
+    lookup: readLinkedInAccountLookupFromBody(body),
+    requiredScope: 'linkedin:automation',
+  })
   const input: {
-    accessToken: string
     status: 'start' | 'stop'
-    lookup?: FindLinkedInStoredAccountInput
+    lookup: FindLinkedInStoredAccountInput
   } = {
-    accessToken,
     status,
-  }
-
-  if (lookup) {
-    input.lookup = lookup
+    lookup,
   }
 
   const automation = await service.updateStatus(input)
@@ -331,6 +349,35 @@ async function readOptionalLinkedInContentBody(c: Context<AppEnv>) {
   return (
     (await parseOptionalJsonObject<LinkedInContentBody>(c.req.raw)) ?? {}
   )
+}
+
+async function readAuthorizedLinkedInAccountLookup(
+  c: Context<AppEnv>,
+  input: {
+    accountSessionService: LinkedInAccountSessionService
+    lookup: FindLinkedInStoredAccountInput | undefined
+    requiredScope: LinkedInAccountSessionScope
+  },
+): Promise<FindLinkedInStoredAccountInput> {
+  const sessionInput: {
+    authorizationHeader?: string | null
+    lookup?: FindLinkedInStoredAccountInput
+    requiredScope: LinkedInAccountSessionScope
+  } = {
+    authorizationHeader: c.req.header('Authorization') ?? null,
+    requiredScope: input.requiredScope,
+  }
+
+  if (input.lookup) {
+    sessionInput.lookup = input.lookup
+  }
+
+  const session = await input.accountSessionService.requireSession(sessionInput)
+
+  return {
+    accountId: session.accountId,
+    linkedinMemberId: session.linkedinMemberId,
+  }
 }
 
 function readLinkedInAccountLookupFromQuery(c: Context<AppEnv>) {

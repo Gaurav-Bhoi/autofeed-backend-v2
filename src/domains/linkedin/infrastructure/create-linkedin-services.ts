@@ -2,25 +2,39 @@ import { LinkedInAuthService } from '../application/linkedin-auth.service'
 import { LinkedInDashboardService } from '../application/linkedin-dashboard.service'
 import { LinkedInPostService } from '../application/linkedin-post.service'
 import { LinkedInProfileService } from '../application/linkedin-profile.service'
+import { LinkedInAccountSessionService } from '../application/linkedin-account-session.service'
 import { getLinkedInAuthConfig } from './linkedin-config'
 import { getOptionalDatabaseUrl } from './linkedin-database-config'
 import { LinkedInHttpGateway } from './linkedin-http.gateway'
 import { PrismaLinkedInLoginRepository } from './prisma-linkedin-login.repository'
 import { getPrismaClient } from '../../../shared/prisma/prisma-client'
 import { PrismaLinkedInContentHistoryRepository } from '../../content/linkedin/infrastructure/prisma-linkedin-content-history.repository'
+import { LinkedInOAuthStateService } from '../application/linkedin-oauth-state.service'
+import { readAutofeedSigningSecret } from '../../../shared/auth/autofeed-auth-config'
 
 export function createLinkedInServices(env: Env) {
   const config = getLinkedInAuthConfig(env)
   const gateway = new LinkedInHttpGateway(config)
   const databaseUrl = getOptionalDatabaseUrl(env)
   const prisma = databaseUrl === null ? null : getPrismaClient(databaseUrl)
+  const signingSecret = readAutofeedSigningSecret(env)
   const loginRepository =
-    prisma === null ? null : new PrismaLinkedInLoginRepository(prisma)
+    prisma === null
+      ? null
+      : new PrismaLinkedInLoginRepository(prisma, signingSecret)
   const contentHistoryRepository =
     prisma === null ? null : new PrismaLinkedInContentHistoryRepository(prisma)
+  const accountSessionService = LinkedInAccountSessionService.fromEnv(env)
+  const oauthStateService = LinkedInOAuthStateService.fromEnv(env)
 
   return {
-    authService: new LinkedInAuthService(gateway, config, loginRepository),
+    accountSessionService,
+    authService: new LinkedInAuthService(
+      gateway,
+      config,
+      loginRepository,
+      oauthStateService,
+    ),
     contentHistoryRepository,
     dashboardService: new LinkedInDashboardService(loginRepository),
     loginRepository,

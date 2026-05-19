@@ -15,7 +15,10 @@ import type { LinkedInContentPublishInput } from './publish-linkedin-content.ser
 const TECH_MEMES_SECTION = 'tech-memes'
 const NEWS_SECTION = 'news'
 const LEGACY_TECH_NEWS_SECTION = 'tech-news'
-const REDDIT_POST_LIMIT = 20
+const REDDIT_NEWS_POST_LIMIT = 20
+const REDDIT_MEME_POST_LIMIT = 40
+const REDDIT_MEME_TOP_CANDIDATE_POOL = 18
+const REDDIT_MEME_MIN_SCORE = 25
 const DEFAULT_REDDIT_USER_AGENT =
   'script:linkedin-news:v1.0 (by /u/YOUR_REDDIT_USERNAME)'
 const rssParser = new XMLParser({
@@ -48,10 +51,13 @@ const MEMEGEN_TEMPLATES = [
 const DEFAULT_MEME_SUBREDDITS = [
   'ProgrammerHumor',
   'programmingmemes',
-  'softwaregore',
-  'iiiiiiitttttttttttt',
+  'ProgrammerDadJokes',
+  'programmerreactions',
   'linuxmemes',
   'webdevmemes',
+  'sysadminhumor',
+  'iiiiiiitttttttttttt',
+  'softwaregore',
 ] as const
 const DEFAULT_REDDIT_SUBREDDITS = [
   'worldnews',
@@ -151,12 +157,17 @@ export type LinkedInContentEngineInput = {
   historyRepository?: LinkedInContentHistoryRepository | null
 }
 
-type LinkedInContentCandidate = LinkedInContentSelection
-type TechMemeSource = 'memegen' | 'reddit'
+type LinkedInContentCandidate = LinkedInContentSelection & {
+  rank?: number
+}
 type RedditCandidateFactory = (
   post: RedditPost,
   subreddit: string,
 ) => LinkedInContentCandidate[]
+type RedditListingOptions = {
+  timeRange: 'day' | 'week'
+  limit: number
+}
 
 type RedditListingResponse = {
   data?: {
@@ -175,6 +186,8 @@ type RedditPost = {
   permalink?: string
   url?: string
   score?: number
+  num_comments?: number
+  upvote_ratio?: number
   stickied?: boolean
   over_18?: boolean
   is_video?: boolean
@@ -264,6 +277,10 @@ export class LinkedInContentEngineService {
             section,
             input.publicBaseUrl,
           ),
+        {
+          timeRange: 'day',
+          limit: REDDIT_NEWS_POST_LIMIT,
+        },
       )
       const selection = await this.selectFromCandidates(
         candidates,
@@ -305,20 +322,13 @@ export class LinkedInContentEngineService {
   }
 
   private async selectTechMeme(input: LinkedInContentEngineInput) {
-    const sources: TechMemeSource[] = this.shuffle(['memegen', 'reddit'])
+    const redditSelection = await this.selectRedditMemes(input)
 
-    for (const source of sources) {
-      const selection =
-        source === 'memegen'
-          ? await this.selectMemegenMeme(input)
-          : await this.selectRedditMemes(input)
-
-      if (selection) {
-        return selection
-      }
+    if (redditSelection) {
+      return redditSelection
     }
 
-    return null
+    return this.selectMemegenMeme(input)
   }
 
   private async selectMemegenMeme(input: LinkedInContentEngineInput) {
@@ -340,24 +350,23 @@ export class LinkedInContentEngineService {
     const subreddits = this.shuffle(
       normalizeMemeSubreddits(input.memeSubreddits),
     )
+    const candidates: LinkedInContentCandidate[] = []
 
     for (const subreddit of subreddits) {
-      const candidates = await this.fetchRedditCandidates(
+      const subredditCandidates = await this.fetchRedditCandidates(
         subreddit,
         input.redditUserAgent,
         toRedditMemeCandidate,
-      )
-      const selection = await this.selectFromCandidates(
-        candidates,
-        input.historyRepository,
+        {
+          timeRange: 'week',
+          limit: REDDIT_MEME_POST_LIMIT,
+        },
       )
 
-      if (selection) {
-        return selection
-      }
+      candidates.push(...subredditCandidates)
     }
 
-    return null
+    return this.selectFromCandidates(candidates, input.historyRepository)
   }
 
   private async preferUnusedMemegenTemplates(
@@ -393,10 +402,11 @@ export class LinkedInContentEngineService {
     subreddit: string,
     redditUserAgent: string | undefined,
     createCandidate: RedditCandidateFactory,
+    options: RedditListingOptions,
   ) {
     const url = new URL(`https://www.reddit.com/r/${subreddit}/top.json`)
-    url.searchParams.set('t', 'day')
-    url.searchParams.set('limit', String(REDDIT_POST_LIMIT))
+    url.searchParams.set('t', options.timeRange)
+    url.searchParams.set('limit', String(options.limit))
     url.searchParams.set('raw_json', '1')
 
     const response = await this.fetcher(url.toString(), {
@@ -454,7 +464,7 @@ export class LinkedInContentEngineService {
     }
 
     if (!historyRepository) {
-      return this.pick(candidates)
+      return this.pick(preferHighRankedCandidates(candidates))
     }
 
     const usedKeys = await historyRepository.findUsedKeys(
@@ -468,7 +478,7 @@ export class LinkedInContentEngineService {
       return null
     }
 
-    return this.pick(unusedCandidates)
+    return this.pick(preferHighRankedCandidates(unusedCandidates))
   }
 
   private pick<T>(values: T[]) {
@@ -797,11 +807,23 @@ function toRedditMemeCandidate(post: RedditPost, subreddit: string) {
   const title = post.title?.trim()
   const postId = post.id?.trim()
   const imageUrl = readRedditImageUrl(post)
+  const score = typeof post.score === 'number' ? post.score : 0
+  const commentCount =
+    typeof post.num_comments === 'number' ? post.num_comments : 0
+  const upvoteRatio =
+    typeof post.upvote_ratio === 'number' ? post.upvote_ratio : null
 
-  if (!title || !postId || !imageUrl) {
+  if (
+    !title ||
+    !postId ||
+    !imageUrl ||
+    score < REDDIT_MEME_MIN_SCORE ||
+    (upvoteRatio !== null && upvoteRatio < 0.72)
+  ) {
     return []
   }
 
+  const sourceChannel = `r/${subreddit}`
   const discussionUrl = post.permalink
     ? `https://www.reddit.com${post.permalink}`
     : `https://www.reddit.com/r/${subreddit}`
@@ -812,17 +834,19 @@ function toRedditMemeCandidate(post: RedditPost, subreddit: string) {
   const input: LinkedInContentPublishInput = {
     topic: truncateText(title, 180),
     audience: 'developers and engineering teams',
-    objective: `turn a programming meme from r/${subreddit} into a useful engineering reminder`,
+    objective: `turn a programming meme from ${sourceChannel} into a sharp, funny LinkedIn post that mentions ${sourceChannel} once as the source channel`,
     keyPoints: [
-      `Meme source: r/${subreddit}`,
-      `Reddit score: ${typeof post.score === 'number' ? post.score : 0}`,
-      'Connect the joke to one practical delivery habit',
+      `Meme source channel: ${sourceChannel}`,
+      `Reddit score: ${score}`,
+      `Reddit comments: ${commentCount}`,
+      'Keep the joke punchy before connecting it to one practical delivery habit',
+      `Mention ${sourceChannel} once naturally in the post text`,
     ],
     tone: 'conversational',
-    callToAction: 'Which tech meme describes your week right now?',
+    callToAction: `What did ${sourceChannel} get painfully right here?`,
     imageUrl,
     imageTitle: truncateText(title, 180),
-    imageDescription: `Top r/${subreddit} meme from today.`,
+    imageDescription: `Top ${sourceChannel} meme from this week.`,
     imageAltText: truncateText(`Image from Reddit meme titled: ${title}`, 240),
   }
 
@@ -835,8 +859,19 @@ function toRedditMemeCandidate(post: RedditPost, subreddit: string) {
       itemId: `reddit-meme:${subreddit}:${postId}`,
       sourceUrl,
       input,
+      rank: score + commentCount * 2 + Math.round((upvoteRatio ?? 0.75) * 100),
     },
   ]
+}
+
+function preferHighRankedCandidates(candidates: LinkedInContentCandidate[]) {
+  if (!candidates.some((candidate) => typeof candidate.rank === 'number')) {
+    return candidates
+  }
+
+  return [...candidates]
+    .sort((left, right) => (right.rank ?? 0) - (left.rank ?? 0))
+    .slice(0, REDDIT_MEME_TOP_CANDIDATE_POOL)
 }
 
 function readRssItems(value: unknown) {

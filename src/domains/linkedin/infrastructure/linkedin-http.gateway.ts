@@ -93,7 +93,7 @@ export class LinkedInHttpGateway implements LinkedInGateway {
       accessToken: payload.access_token,
       expiresIn: payload.expires_in,
       tokenType: payload.token_type ?? 'Bearer',
-      scopes: payload.scope ? payload.scope.split(/\s+/).filter(Boolean) : [],
+      scopes: payload.scope ? payload.scope.split(/[,\s]+/).filter(Boolean) : [],
       idToken: payload.id_token ?? null,
       refreshToken: payload.refresh_token ?? null,
       refreshTokenExpiresIn: payload.refresh_token_expires_in ?? null,

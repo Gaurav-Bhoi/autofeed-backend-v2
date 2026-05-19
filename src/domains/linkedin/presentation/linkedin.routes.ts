@@ -3,12 +3,24 @@ import type { Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 
 import type { AppEnv } from '../../../app/types'
-import { badRequest } from '../../../shared/http/errors'
+import { badRequest, unauthorized } from '../../../shared/http/errors'
 import { getBearerToken, parseJsonObject } from '../../../shared/http/request'
 import { LINKEDIN_CALLBACK_PATH } from '../linkedin.constants'
 import type { LinkedInProfile } from '../domain/linkedin.entities'
 import type { LinkedInVisibility } from '../domain/linkedin.entities'
+import type { LinkedInLoginRepository } from '../domain/linkedin-login.repository'
 import { loadLinkedInServices } from '../infrastructure/load-linkedin-services'
+import {
+  isAutofeedLinkedInSessionToken,
+  type LinkedInAccountSessionService,
+  type LinkedInAccountSessionScope,
+} from '../application/linkedin-account-session.service'
+import { LinkedInOAuthStateService } from '../application/linkedin-oauth-state.service'
+import type { LinkedInProfileService } from '../application/linkedin-profile.service'
+
+type LinkedInReturnUriEnv = Env & {
+  LINKEDIN_ALLOWED_RETURN_URIS?: string
+}
 
 export async function handleLinkedInCallback(c: Context<AppEnv>) {
   const prefersHtml = readCallbackHtmlPreference(c)
@@ -17,15 +29,39 @@ export async function handleLinkedInCallback(c: Context<AppEnv>) {
 
   if (error) {
     const message = errorDescription || `LinkedIn authorization failed: ${error}`
+    const callbackState = await readCallbackStateContext(c)
 
     if (prefersHtml) {
+      if (callbackState?.returnUri) {
+        logLinkedInCallbackComplete(c, {
+          outcome: 'linkedin_error',
+          status: 302,
+          returnUri: callbackState.returnUri,
+          oauthStatePresent: true,
+          clientStatePresent: false,
+          error,
+        })
+
+        return withPrivateResponseHeaders(
+          c.redirect(
+            buildLinkedInErrorReturnUri(callbackState.returnUri, {
+              error,
+              message,
+              requestId: c.get('requestId'),
+              state: callbackState.state,
+            }),
+            302,
+          ),
+        )
+      }
+
       return renderLinkedInCallbackPage(c, {
         variant: 'error',
         title: 'LinkedIn sign-in hit a snag',
         message,
         eyebrow: 'Connection incomplete',
         actionLabel: 'Try again',
-        actionHref: '/api/linkedin/auth-start',
+        actionHref: buildLinkedInAuthStartHref(c, callbackState?.returnUri),
       }, 400)
     }
 
@@ -35,14 +71,40 @@ export async function handleLinkedInCallback(c: Context<AppEnv>) {
   const code = c.req.query('code')?.trim()
 
   if (!code) {
+    const callbackState = await readCallbackStateContext(c)
+
     if (prefersHtml) {
+      if (callbackState?.returnUri) {
+        logLinkedInCallbackComplete(c, {
+          outcome: 'missing_code',
+          status: 302,
+          returnUri: callbackState.returnUri,
+          oauthStatePresent: true,
+          clientStatePresent: false,
+          error: 'missing_code',
+        })
+
+        return withPrivateResponseHeaders(
+          c.redirect(
+            buildLinkedInErrorReturnUri(callbackState.returnUri, {
+              error: 'missing_code',
+              message:
+                'LinkedIn redirected back without the authorization code we need to finish sign-in.',
+              requestId: c.get('requestId'),
+              state: callbackState.state,
+            }),
+            302,
+          ),
+        )
+      }
+
       return renderLinkedInCallbackPage(c, {
         variant: 'error',
         title: 'Missing LinkedIn code',
         message: 'LinkedIn redirected back without the authorization code we need to finish sign-in.',
         eyebrow: 'Connection incomplete',
         actionLabel: 'Start over',
-        actionHref: '/api/linkedin/auth-start',
+        actionHref: buildLinkedInAuthStartHref(c, callbackState?.returnUri),
       }, 400)
     }
 
@@ -50,12 +112,40 @@ export async function handleLinkedInCallback(c: Context<AppEnv>) {
   }
 
   try {
-    const { authService } = await loadLinkedInServices(c.env)
+    const { accountSessionService, authService } =
+      await loadLinkedInServices(c.env)
     const state = c.req.query('state') ?? null
     const result = await authService.handleCallback(code, {
       state,
       requestId: c.get('requestId'),
     })
+    const session = await accountSessionService.createSession(
+      result.storedAccount,
+    )
+
+    if (result.returnUri && prefersHtml) {
+      logLinkedInCallbackComplete(c, {
+        outcome: 'success',
+        status: 302,
+        returnUri: result.returnUri,
+        oauthStatePresent: Boolean(state),
+        clientStatePresent: Boolean(result.clientState),
+        accountId: session.accountId,
+      })
+
+      return withPrivateResponseHeaders(
+        c.redirect(
+          buildLinkedInReturnUri(result.returnUri, {
+            accountId: session.accountId,
+            linkedinMemberId: session.linkedinMemberId,
+            sessionToken: session.accessToken,
+            sessionExpiresAt: session.expiresAt,
+            state: result.clientState,
+          }),
+          302,
+        ),
+      )
+    }
 
     if (prefersHtml) {
       return renderLinkedInCallbackPage(c, {
@@ -74,8 +164,10 @@ export async function handleLinkedInCallback(c: Context<AppEnv>) {
       ok: true,
       domain: 'linkedin',
       action: 'callback',
-      state,
-      ...result,
+      state: result.clientState,
+      profile: result.profile,
+      storedAccount: result.storedAccount,
+      session,
       requestId: c.get('requestId'),
     })
 
@@ -85,11 +177,32 @@ export async function handleLinkedInCallback(c: Context<AppEnv>) {
       throw error
     }
 
+    const callbackState = await readCallbackStateContext(c)
     const status = error instanceof HTTPException ? error.status : 500
-    const message =
-      error instanceof Error && error.message
-        ? error.message
-        : 'Something went wrong while finishing your LinkedIn sign-in.'
+    const message = getPublicLinkedInCallbackErrorMessage(error)
+
+    if (callbackState?.returnUri) {
+      logLinkedInCallbackComplete(c, {
+        outcome: 'callback_failed',
+        status: 302,
+        returnUri: callbackState.returnUri,
+        oauthStatePresent: true,
+        clientStatePresent: false,
+        error: error instanceof Error ? error.name : 'Error',
+      })
+
+      return withPrivateResponseHeaders(
+        c.redirect(
+          buildLinkedInErrorReturnUri(callbackState.returnUri, {
+            error: 'linkedin_callback_failed',
+            message,
+            requestId: c.get('requestId'),
+            state: callbackState.state,
+          }),
+          302,
+        ),
+      )
+    }
 
     return renderLinkedInCallbackPage(c, {
       variant: 'error',
@@ -97,7 +210,7 @@ export async function handleLinkedInCallback(c: Context<AppEnv>) {
       message,
       eyebrow: 'Connection incomplete',
       actionLabel: 'Try again',
-      actionHref: '/api/linkedin/auth-start',
+      actionHref: buildLinkedInAuthStartHref(c, callbackState?.returnUri),
     }, status)
   }
 }
@@ -138,7 +251,8 @@ export function createLinkedInRouter() {
   registerLinkedInAuthRoute(router, '/authorizationUrl', { preferJson: true })
 
   router.get('/dashboard', async (c) => {
-    const { dashboardService } = await loadLinkedInServices(c.env)
+    const { accountSessionService, dashboardService } =
+      await loadLinkedInServices(c.env)
     const accountId = readOptionalQueryValue(c, 'accountId')
     const linkedinMemberId = readOptionalQueryValue(c, 'linkedinMemberId')
     const lookup: {
@@ -154,8 +268,25 @@ export function createLinkedInRouter() {
       lookup.linkedinMemberId = linkedinMemberId
     }
 
+    const sessionInput: {
+      authorizationHeader: string | null
+      lookup?: typeof lookup
+      requiredScope: 'linkedin:automation'
+    } = {
+      authorizationHeader: c.req.header('Authorization') ?? null,
+      requiredScope: 'linkedin:automation',
+    }
+
+    if (Object.keys(lookup).length > 0) {
+      sessionInput.lookup = lookup
+    }
+
+    const session = await accountSessionService.requireSession(sessionInput)
     const dashboard = await dashboardService.getDashboard(
-      Object.keys(lookup).length === 0 ? undefined : lookup,
+      {
+        accountId: session.accountId,
+        linkedinMemberId: session.linkedinMemberId,
+      },
     )
 
     return c.json({
@@ -167,9 +298,17 @@ export function createLinkedInRouter() {
   })
 
   router.get('/profile', async (c) => {
-    const { profileService } = await loadLinkedInServices(c.env)
+    const { accountSessionService, loginRepository, profileService } =
+      await loadLinkedInServices(c.env)
     const accessToken = getBearerToken(c.req.header('Authorization'))
-    const profile = await profileService.getCurrentProfile(accessToken)
+    const profile = isAutofeedLinkedInSessionToken(accessToken)
+      ? await getProfileForAutofeedSession({
+          accountSessionService,
+          loginRepository,
+          profileService,
+          token: accessToken,
+        })
+      : await profileService.getCurrentProfile(accessToken)
 
     return c.json({
       ok: true,
@@ -180,7 +319,8 @@ export function createLinkedInRouter() {
   })
 
   router.post('/posts', async (c) => {
-    const { postService } = await loadLinkedInServices(c.env)
+    const { accountSessionService, loginRepository, postService } =
+      await loadLinkedInServices(c.env)
     const accessToken = getBearerToken(c.req.header('Authorization'))
     const body = await parseJsonObject<{
       text?: unknown
@@ -240,7 +380,25 @@ export function createLinkedInRouter() {
       postInput.visibility = body.visibility as LinkedInVisibility
     }
 
-    const post = await postService.publish(accessToken, postInput)
+    const publishSession = isAutofeedLinkedInSessionToken(accessToken)
+      ? await readPublishSessionForAutofeedSession(c, {
+          accountSessionService,
+          loginRepository,
+          token: accessToken,
+        })
+      : {
+          accessToken,
+          linkedinMemberId: undefined,
+        }
+    const post = await postService.publish(
+      publishSession.accessToken,
+      postInput,
+      publishSession.linkedinMemberId
+        ? {
+            expectedLinkedInMemberId: publishSession.linkedinMemberId,
+          }
+        : undefined,
+    )
 
     return c.json(
       {
@@ -286,6 +444,7 @@ async function handleLinkedInAuthStart(
   const loginOptions: {
     state?: string
     scopes?: string[]
+    returnUri?: string
   } = {}
 
   if (input.state) {
@@ -296,7 +455,13 @@ async function handleLinkedInAuthStart(
     loginOptions.scopes = input.scopes
   }
 
-  const login = authService.createLogin(loginOptions)
+  const returnUri = readAllowedLinkedInReturnUri(c, input.returnUri)
+
+  if (returnUri) {
+    loginOptions.returnUri = returnUri
+  }
+
+  const login = await authService.createLogin(loginOptions)
   const shouldRedirect = readRedirectPreference(c, options)
 
   if (shouldRedirect) {
@@ -311,6 +476,72 @@ async function handleLinkedInAuthStart(
     ...login,
     requestId: c.get('requestId'),
   })
+}
+
+async function getProfileForAutofeedSession(
+  input: {
+    accountSessionService: LinkedInAccountSessionService
+    loginRepository: LinkedInLoginRepository | null
+    profileService: LinkedInProfileService
+    token: string
+  },
+) {
+  const publishSession = await readStoredLinkedInTokenForAutofeedSession({
+    accountSessionService: input.accountSessionService,
+    loginRepository: input.loginRepository,
+    token: input.token,
+    requiredScope: 'linkedin:automation',
+  })
+
+  return input.profileService.getCurrentProfile(publishSession.accessToken)
+}
+
+async function readPublishSessionForAutofeedSession(
+  _c: Context<AppEnv>,
+  input: {
+    accountSessionService: LinkedInAccountSessionService
+    loginRepository: LinkedInLoginRepository | null
+    token: string
+  },
+) {
+  return readStoredLinkedInTokenForAutofeedSession({
+    accountSessionService: input.accountSessionService,
+    loginRepository: input.loginRepository,
+    token: input.token,
+    requiredScope: 'linkedin:publish',
+  })
+}
+
+async function readStoredLinkedInTokenForAutofeedSession(
+  input: {
+    accountSessionService: LinkedInAccountSessionService
+    loginRepository: LinkedInLoginRepository | null
+    token: string
+    requiredScope: LinkedInAccountSessionScope
+  },
+) {
+  const session = await input.accountSessionService.requireSession({
+    token: input.token,
+    requiredScope: input.requiredScope,
+  })
+
+  if (!input.loginRepository) {
+    throw unauthorized('LinkedIn account is not connected')
+  }
+
+  const account = await input.loginRepository.findPublishableAccount({
+    accountId: session.accountId,
+    linkedinMemberId: session.linkedinMemberId,
+  })
+
+  if (!account) {
+    throw unauthorized('LinkedIn account is not connected')
+  }
+
+  return {
+    accessToken: account.accessToken,
+    linkedinMemberId: account.linkedinMemberId,
+  }
 }
 
 function readRedirectPreference(
@@ -384,11 +615,17 @@ function readHtmlPreference(c: Context<AppEnv>, fallback: boolean) {
 async function readAuthStartInput(c: Context<AppEnv>) {
   const queryState = c.req.query('state') ?? undefined
   const queryScopes = readScopeQuery(c)
+  const queryReturnUri =
+    c.req.query('returnUri') ??
+    c.req.query('redirectUri') ??
+    c.req.query('return_uri') ??
+    undefined
 
   if (c.req.method !== 'POST') {
     return {
       state: queryState,
       scopes: queryScopes,
+      returnUri: queryReturnUri,
     }
   }
 
@@ -396,10 +633,12 @@ async function readAuthStartInput(c: Context<AppEnv>) {
   const bodyState =
     typeof body?.state === 'string' ? body.state.trim() || undefined : undefined
   const bodyScopes = readScopeBody(body)
+  const bodyReturnUri = readReturnUriBody(body)
 
   return {
     state: bodyState ?? queryState,
     scopes: bodyScopes ?? queryScopes,
+    returnUri: bodyReturnUri ?? queryReturnUri,
   }
 }
 
@@ -446,6 +685,213 @@ function readScopeBody(body: Record<string, unknown> | null) {
   }
 
   return undefined
+}
+
+function readReturnUriBody(body: Record<string, unknown> | null) {
+  if (!body) {
+    return undefined
+  }
+
+  const rawReturnUri =
+    'returnUri' in body
+      ? body.returnUri
+      : 'redirectUri' in body
+        ? body.redirectUri
+        : 'return_uri' in body
+          ? body.return_uri
+          : undefined
+
+  return typeof rawReturnUri === 'string'
+    ? rawReturnUri.trim() || undefined
+    : undefined
+}
+
+function readAllowedLinkedInReturnUri(
+  c: Context<AppEnv>,
+  rawReturnUri?: string,
+) {
+  const returnUri = rawReturnUri?.trim()
+
+  if (!returnUri) {
+    return undefined
+  }
+
+  let parsed: URL
+
+  try {
+    parsed = new URL(returnUri)
+  } catch {
+    throw badRequest('returnUri must be a valid absolute URI')
+  }
+
+  const normalized = parsed.toString()
+  const allowed = readAllowedReturnUris(c.env)
+
+  if (!allowed.has(normalized)) {
+    throw badRequest('returnUri is not allowed')
+  }
+
+  return normalized
+}
+
+function readAllowedReturnUris(env: Env) {
+  const configured = (env as LinkedInReturnUriEnv)
+    .LINKEDIN_ALLOWED_RETURN_URIS
+    ?.split(/[,\s|]+/)
+    .map((value) => value.trim())
+    .filter(Boolean)
+
+  return new Set([
+    'com.autofeed.linkedin://oauthredirect',
+    'autofeed://linkedin/oauthredirect',
+    ...(configured ?? []),
+  ])
+}
+
+async function readCallbackStateContext(c: Context<AppEnv>) {
+  const state = c.req.query('state')?.trim()
+
+  if (!state) {
+    return null
+  }
+
+  try {
+    const oauthState = await LinkedInOAuthStateService.fromEnv(c.env).verify(
+      state,
+    )
+
+    return {
+      state,
+      returnUri: oauthState.returnUri,
+    }
+  } catch {
+    return null
+  }
+}
+
+function buildLinkedInAuthStartHref(
+  c: Context<AppEnv>,
+  returnUri?: string | null,
+) {
+  const url = new URL('/api/linkedin/auth-start', c.req.url)
+
+  url.searchParams.set('redirect', 'true')
+
+  if (returnUri) {
+    url.searchParams.set('returnUri', returnUri)
+  }
+
+  return url.toString()
+}
+
+function buildLinkedInReturnUri(
+  returnUri: string,
+  input: {
+    accountId: string
+    linkedinMemberId: string
+    sessionToken: string
+    sessionExpiresAt: string
+    state: string | null
+  },
+) {
+  const url = new URL(returnUri)
+  const params = new URLSearchParams(url.hash.replace(/^#/, ''))
+
+  params.set('connected', 'true')
+  params.set('accountId', input.accountId)
+  params.set('linkedinMemberId', input.linkedinMemberId)
+  params.set('autofeedSessionToken', input.sessionToken)
+  params.set('autofeedSessionExpiresAt', input.sessionExpiresAt)
+
+  if (input.state) {
+    params.set('state', input.state)
+  }
+
+  url.hash = params.toString()
+
+  return url.toString()
+}
+
+function buildLinkedInErrorReturnUri(
+  returnUri: string,
+  input: {
+    error: string
+    message: string
+    requestId: string
+    state: string | null
+  },
+) {
+  const url = new URL(returnUri)
+  const params = new URLSearchParams(url.hash.replace(/^#/, ''))
+
+  params.set('connected', 'false')
+  params.set('error', input.error)
+  params.set('error_description', input.message)
+  params.set('requestId', input.requestId)
+
+  if (input.state) {
+    params.set('state', input.state)
+  }
+
+  url.hash = params.toString()
+
+  return url.toString()
+}
+
+function getPublicLinkedInCallbackErrorMessage(error: unknown) {
+  if (error instanceof HTTPException && error.message) {
+    return error.message
+  }
+
+  return 'Something went wrong while finishing your LinkedIn sign-in.'
+}
+
+function logLinkedInCallbackComplete(
+  c: Context<AppEnv>,
+  input: {
+    outcome: 'success' | 'linkedin_error' | 'missing_code' | 'callback_failed'
+    status: number
+    returnUri?: string | null
+    oauthStatePresent: boolean
+    clientStatePresent: boolean
+    accountId?: string
+    error?: string
+  },
+) {
+  console.log(
+    JSON.stringify({
+      message: 'linkedin.callback.complete',
+      requestId: c.get('requestId'),
+      outcome: input.outcome,
+      status: input.status,
+      returnedToNative: Boolean(input.returnUri),
+      returnUri: input.returnUri
+        ? describeReturnUriForLogs(input.returnUri)
+        : null,
+      oauthStatePresent: input.oauthStatePresent,
+      clientStatePresent: input.clientStatePresent,
+      accountId: input.accountId ?? null,
+      error: input.error ?? null,
+    }),
+  )
+}
+
+function describeReturnUriForLogs(returnUri: string) {
+  try {
+    const url = new URL(returnUri)
+
+    return {
+      protocol: url.protocol,
+      host: url.host || null,
+      pathname: url.pathname || null,
+    }
+  } catch {
+    return {
+      protocol: null,
+      host: null,
+      pathname: null,
+    }
+  }
 }
 
 async function readOptionalJsonObject(request: Request) {
