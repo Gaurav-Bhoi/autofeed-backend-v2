@@ -16,9 +16,6 @@
   },
   "env": {
     "development": {
-      "triggers": {
-        "crons": ["*/5 * * * *"]
-      },
       "secrets": {
         "required": [
           "LINKEDIN_CLIENT_SECRET",
@@ -32,7 +29,7 @@
         "LINKEDIN_CLIENT_ID": "86esd8heytrkhm",
         "ALLOWED_ORIGINS": "https://autofeed.io|https://www.autofeed.io|http://localhost:3000|http://localhost:5173",
         "LINKEDIN_ALLOWED_RETURN_URIS": "com.autofeed.dev.linkedin://oauthredirect|com.autofeed.linkedin://oauthredirect|autofeed://linkedin/oauthredirect",
-        "CONTENT_LINKEDIN_AUTO_POST_SCHEDULE": "daily-10am",
+        "CONTENT_LINKEDIN_AUTO_POST_SCHEDULE": "off",
         "CONTENT_LINKEDIN_AUTO_POST_SECTIONS": "tech-memes|news",
         "CONTENT_LINKEDIN_MEME_SUBREDDITS": "ProgrammerHumor|programmingmemes|ProgrammerDadJokes|programmerreactions|linuxmemes|webdevmemes|sysadminhumor|iiiiiiitttttttttttt|softwaregore",
         "CONTENT_LINKEDIN_REDDIT_SUBREDDITS": "worldnews|news|geopolitics|india|IndianPolitics|IndianModerate|unitedstatesofindia|business|economics|technology|science|UpliftingNews",
@@ -58,9 +55,6 @@
       ]
     },
     "production": {
-      "triggers": {
-        "crons": ["*/5 * * * *"]
-      },
       "secrets": {
         "required": [
           "LINKEDIN_CLIENT_SECRET",
