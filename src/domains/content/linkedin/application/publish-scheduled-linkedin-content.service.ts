@@ -21,8 +21,10 @@ import {
 import {
   composeLinkedInText,
   getNextRunPodImageInputMode,
+  getRunPodDailySubmissionWindow,
   readRunPodImageInputMode,
   RunPodLinkedInContentService,
+  RUNPOD_DAILY_SUBMISSION_LIMIT,
   type RunPodImageInputMode,
   type RunPodJobResult,
 } from './runpod-linkedin-content.service'
@@ -45,6 +47,14 @@ type RunPodAttemptResult =
       state: 'pending'
       runpodJobId: string | null
       runpodStatus: string
+    }
+  | {
+      state: 'limited'
+      runpodStatus: string
+    }
+  | {
+      state: 'unavailable'
+      error: string
     }
   | {
       state: 'failed'
@@ -278,6 +288,40 @@ export class PublishScheduledLinkedInContentService {
       )
     }
 
+    if (attempt.state === 'limited') {
+      await this.contentHistoryRepository?.markAiFailed({
+        contentKey: currentJob.contentKey,
+        runpodStatus: attempt.runpodStatus,
+        aiError: 'Daily RunPod submission limit reached',
+      })
+
+      return this.createAiPendingResult(
+        config,
+        scheduledAt,
+        currentJob,
+        'runpod-daily-limit-reached',
+        currentJob.runpodJobId,
+        attempt.runpodStatus,
+      )
+    }
+
+    if (attempt.state === 'unavailable') {
+      await this.contentHistoryRepository?.markAiFailed({
+        contentKey: currentJob.contentKey,
+        runpodStatus: 'DEPENDENCY_UNAVAILABLE',
+        aiError: attempt.error,
+      })
+
+      return this.createAiPendingResult(
+        config,
+        scheduledAt,
+        currentJob,
+        'dependency-unavailable',
+        currentJob.runpodJobId,
+        'DEPENDENCY_UNAVAILABLE',
+      )
+    }
+
     if (attempt.state === 'failed') {
       const nextMode = getNextRunPodImageInputMode(imageInputMode)
 
@@ -474,17 +518,32 @@ export class PublishScheduledLinkedInContentService {
         }
       }
 
-      const claimed = await this.contentHistoryRepository?.claimRunPodSubmission(
-        {
+      let claimed
+
+      try {
+        claimed = await this.contentHistoryRepository?.claimRunPodSubmission({
           contentKey: job.contentKey,
           runpodInputMode: imageInputMode,
           staleBefore: new Date(
             Date.now() - RUNPOD_SUBMISSION_STALE_MS,
           ).toISOString(),
-        },
-      )
+          ...getRunPodSubmissionLimit(job.publishedAt),
+        })
+      } catch (error) {
+        return {
+          state: 'unavailable',
+          error: `Database unavailable before RunPod submission: ${readErrorMessage(error)}`,
+        }
+      }
 
-      if (!claimed) {
+      if (claimed === 'daily-limit-reached') {
+        return {
+          state: 'limited',
+          runpodStatus: 'DAILY_LIMIT_REACHED',
+        }
+      }
+
+      if (claimed !== 'claimed') {
         return {
           state: 'pending',
           runpodJobId: null,
@@ -492,20 +551,38 @@ export class PublishScheduledLinkedInContentService {
         }
       }
 
-      const submitted = await this.runPodService.submit({
-        imageUrl,
-        section: job.section,
-        sourceUrl: job.sourceUrl,
-        contentInput,
-        imageInputMode,
-      })
+      let submitted
 
-      await this.contentHistoryRepository?.markRunPodSubmitted({
-        contentKey: job.contentKey,
-        runpodInputMode: imageInputMode,
-        runpodJobId: submitted.id,
-        runpodStatus: submitted.status,
-      })
+      try {
+        submitted = await this.runPodService.submit({
+          imageUrl,
+          section: job.section,
+          sourceUrl: job.sourceUrl,
+          contentInput,
+          imageInputMode,
+        })
+      } catch (error) {
+        return {
+          state: 'unavailable',
+          error: `RunPod unavailable during job submission: ${readErrorMessage(error)}`,
+        }
+      }
+
+      try {
+        await this.contentHistoryRepository?.markRunPodSubmitted({
+          contentKey: job.contentKey,
+          runpodInputMode: imageInputMode,
+          runpodJobId: submitted.id,
+          runpodStatus: submitted.status,
+        })
+      } catch (error) {
+        await this.cancelSubmittedRunPodJob(submitted.id)
+
+        return {
+          state: 'unavailable',
+          error: `Database unavailable after RunPod submission; cancellation requested for ${submitted.id}: ${readErrorMessage(error)}`,
+        }
+      }
 
       if (
         submitted.status.toUpperCase() === 'COMPLETED' &&
@@ -523,9 +600,23 @@ export class PublishScheduledLinkedInContentService {
       }
     } catch (error) {
       return {
-        state: 'failed',
-        error: readErrorMessage(error),
+        state: 'unavailable',
+        error: `RunPod unavailable while waiting for job result: ${readErrorMessage(error)}`,
       }
+    }
+  }
+
+  private async cancelSubmittedRunPodJob(jobId: string) {
+    try {
+      await this.runPodService?.cancel(jobId)
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          message: 'content.linkedin.runpod.cancel_after_db_failure_failed',
+          runpodJobId: jobId,
+          error: readErrorMessage(error),
+        }),
+      )
     }
   }
 
@@ -794,4 +885,14 @@ function isStaleRunPodSubmission(job: LinkedInContentAiJobRecord) {
     Number.isFinite(updatedAt) &&
     Date.now() - updatedAt >= RUNPOD_SUBMISSION_STALE_MS
   )
+}
+
+function getRunPodSubmissionLimit(publishedAt: string) {
+  const window = getRunPodDailySubmissionWindow(publishedAt)
+
+  return {
+    dailyLimitWindowStart: window.start,
+    dailyLimitWindowEnd: window.end,
+    dailyLimit: RUNPOD_DAILY_SUBMISSION_LIMIT,
+  }
 }

@@ -61,6 +61,11 @@ export type LinkedInContentReservationInput = {
   publishedAt: string
 }
 
+export type LinkedInRunPodSubmissionClaimResult =
+  | 'claimed'
+  | 'pending'
+  | 'daily-limit-reached'
+
 export interface LinkedInContentHistoryRepository {
   findUsedKeys(contentKeys: string[]): Promise<Set<string>>
   findUsedItemIds(itemIds: string[]): Promise<Set<string>>
@@ -76,7 +81,10 @@ export interface LinkedInContentHistoryRepository {
     contentKey: string
     runpodInputMode: string
     staleBefore: string
-  }): Promise<boolean>
+    dailyLimitWindowStart: string
+    dailyLimitWindowEnd: string
+    dailyLimit: number
+  }): Promise<LinkedInRunPodSubmissionClaimResult>
   markRunPodSubmitted(input: {
     contentKey: string
     runpodInputMode: string

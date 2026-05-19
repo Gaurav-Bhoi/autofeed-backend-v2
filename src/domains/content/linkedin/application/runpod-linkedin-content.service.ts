@@ -7,6 +7,9 @@ const DEFAULT_MAX_NEW_TOKENS = 650
 const DEFAULT_TEMPERATURE = 0.2
 const DEFAULT_POLL_TIMEOUT_MS = 45_000
 const DEFAULT_POLL_INTERVAL_MS = 5_000
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000
+const ONE_DAY_MS = 24 * 60 * 60 * 1000
+export const RUNPOD_DAILY_SUBMISSION_LIMIT = 1
 const RUNPOD_IMAGE_INPUT_MODES = [
   'image-url',
   'text-url',
@@ -112,6 +115,17 @@ export class RunPodLinkedInContentService {
     } while (Date.now() - startedAt < this.config.pollTimeoutMs)
 
     return latest
+  }
+
+  async cancel(jobId: string): Promise<RunPodJobResult> {
+    const response = await this.fetcher(this.buildUrl(`cancel/${jobId}`), {
+      method: 'POST',
+      headers: {
+        Authorization: formatAuthorization(this.config.apiKey),
+      },
+    })
+
+    return this.readJobResponse(response, 'RunPod job cancellation failed')
   }
 
   parsePostContent(output: unknown): RunPodLinkedInPostContent {
@@ -247,6 +261,20 @@ export function composeLinkedInText(input: RunPodLinkedInPostContent) {
     .join('\n\n')
 
   return truncateText(text, 3000)
+}
+
+export function getRunPodDailySubmissionWindow(value: string | Date) {
+  const time = value instanceof Date ? value.getTime() : Date.parse(value)
+  const normalizedTime = Number.isFinite(time) ? time : Date.now()
+  const shiftedTime = normalizedTime + IST_OFFSET_MS
+  const shiftedStart = Math.floor(shiftedTime / ONE_DAY_MS) * ONE_DAY_MS
+  const start = new Date(shiftedStart - IST_OFFSET_MS)
+  const end = new Date(start.getTime() + ONE_DAY_MS)
+
+  return {
+    start: start.toISOString(),
+    end: end.toISOString(),
+  }
 }
 
 async function createRunPodMessages(

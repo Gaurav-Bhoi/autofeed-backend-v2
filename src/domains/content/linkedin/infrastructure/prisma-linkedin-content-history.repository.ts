@@ -5,6 +5,7 @@ import type {
   LinkedInContentAiStatus,
   LinkedInContentHistoryRepository,
   LinkedInContentReservationInput,
+  LinkedInRunPodSubmissionClaimResult,
   LinkedInContentUsageInput,
 } from '../domain/linkedin-content-history.repository'
 
@@ -146,33 +147,126 @@ export class PrismaLinkedInContentHistoryRepository
     contentKey: string
     runpodInputMode: string
     staleBefore: string
-  }): Promise<boolean> {
+    dailyLimitWindowStart: string
+    dailyLimitWindowEnd: string
+    dailyLimit: number
+  }): Promise<LinkedInRunPodSubmissionClaimResult> {
     const staleBefore = new Date(input.staleBefore)
-    const result = await this.prisma.linkedInContentHistory.updateMany({
-      where: {
-        contentKey: input.contentKey,
-        runpodJobId: null,
-        OR: [
-          {
-            aiStatus: 'reserved',
-          },
-          {
-            aiStatus: 'submitting',
-            updatedAt: {
-              lte: staleBefore,
-            },
-          },
-        ],
-      },
-      data: {
-        aiStatus: 'submitting',
-        runpodInputMode: input.runpodInputMode,
-        runpodStatus: 'SUBMITTING',
-        aiError: null,
-      },
-    })
+    const dailyLimitWindowStart = new Date(input.dailyLimitWindowStart)
+    const dailyLimitWindowEnd = new Date(input.dailyLimitWindowEnd)
+    const claimed = await this.prisma.$executeRaw`
+      UPDATE linkedin_content_history AS target
+      SET
+        ai_status = 'submitting',
+        runpod_input_mode = ${input.runpodInputMode},
+        runpod_status = 'SUBMITTING',
+        runpod_attempt = target.runpod_attempt + 1,
+        ai_error = NULL,
+        updated_at = NOW()
+      WHERE target.content_key = ${input.contentKey}
+        AND target.runpod_job_id IS NULL
+        AND target.runpod_attempt = 0
+        AND (
+          target.ai_status = 'reserved'
+          OR (
+            target.ai_status = 'submitting'
+            AND target.updated_at <= ${staleBefore}
+          )
+        )
+        AND (
+          SELECT COUNT(*)
+          FROM linkedin_content_history AS existing
+          WHERE existing.content_key <> target.content_key
+            AND existing.published_at >= ${dailyLimitWindowStart}
+            AND existing.published_at < ${dailyLimitWindowEnd}
+            AND (
+              (
+                target.account_id IS NOT NULL
+                AND existing.account_id = target.account_id
+              )
+              OR (
+                target.linkedin_member_id IS NOT NULL
+                AND existing.linkedin_member_id = target.linkedin_member_id
+              )
+            )
+            AND (
+              existing.runpod_job_id IS NOT NULL
+              OR existing.runpod_attempt > 0
+              OR existing.ai_status IN (
+                'submitting',
+                'submitted',
+                'in_queue',
+                'in_progress',
+                'completed',
+                'failed',
+                'posted'
+              )
+            )
+        ) < ${input.dailyLimit}
+    `
 
-    return result.count > 0
+    if (claimed > 0) {
+      return 'claimed'
+    }
+
+    return (await this.hasReachedRunPodSubmissionLimit(input))
+      ? 'daily-limit-reached'
+      : 'pending'
+  }
+
+  private async hasReachedRunPodSubmissionLimit(input: {
+    contentKey: string
+    dailyLimitWindowStart: string
+    dailyLimitWindowEnd: string
+    dailyLimit: number
+  }) {
+    const dailyLimitWindowStart = new Date(input.dailyLimitWindowStart)
+    const dailyLimitWindowEnd = new Date(input.dailyLimitWindowEnd)
+    const rows = await this.prisma.$queryRaw<Array<{ count: number }>>`
+      SELECT (
+        CASE
+          WHEN target.runpod_attempt > 0 THEN 1
+          ELSE 0
+        END
+        +
+        (
+          SELECT COUNT(*)::int
+          FROM linkedin_content_history AS existing
+          WHERE existing.content_key <> target.content_key
+            AND existing.published_at >= ${dailyLimitWindowStart}
+            AND existing.published_at < ${dailyLimitWindowEnd}
+            AND (
+              (
+                target.account_id IS NOT NULL
+                AND existing.account_id = target.account_id
+              )
+              OR (
+                target.linkedin_member_id IS NOT NULL
+                AND existing.linkedin_member_id = target.linkedin_member_id
+              )
+            )
+            AND (
+              existing.runpod_job_id IS NOT NULL
+              OR existing.runpod_attempt > 0
+              OR existing.ai_status IN (
+                'submitting',
+                'submitted',
+                'in_queue',
+                'in_progress',
+                'completed',
+                'failed',
+                'posted'
+              )
+            )
+        )
+      )::int AS count
+      FROM linkedin_content_history AS target
+      WHERE target.content_key = ${input.contentKey}
+      LIMIT 1
+    `
+    const count = rows[0]?.count ?? 0
+
+    return count >= input.dailyLimit
   }
 
   async markRunPodSubmitted(input: {
