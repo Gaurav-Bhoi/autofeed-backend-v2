@@ -67,7 +67,14 @@ export class PrismaLinkedInContentHistoryRepository
       where: {
         linkedinPostId: null,
         aiStatus: {
-          in: ['reserved', 'submitted', 'in_queue', 'in_progress', 'completed'],
+          in: [
+            'reserved',
+            'submitting',
+            'submitted',
+            'in_queue',
+            'in_progress',
+            'completed',
+          ],
         },
         ...(input.accountId
           ? {
@@ -88,6 +95,18 @@ export class PrismaLinkedInContentHistoryRepository
     return toAiJobRecord(record)
   }
 
+  async findAiJobByContentKey(
+    contentKey: string,
+  ): Promise<LinkedInContentAiJobRecord | null> {
+    const record = await this.prisma.linkedInContentHistory.findUnique({
+      where: {
+        contentKey,
+      },
+    })
+
+    return toAiJobRecord(record)
+  }
+
   async reserveAiJob(input: LinkedInContentReservationInput): Promise<void> {
     const publishedAt = new Date(input.publishedAt)
 
@@ -101,13 +120,6 @@ export class PrismaLinkedInContentHistoryRepository
         sourceUrl: input.sourceUrl ?? null,
         imageUrl: input.imageUrl ?? null,
         contentInputJson: toJsonValue(input.contentInput),
-        aiStatus: 'reserved',
-        runpodInputMode: 'image-url',
-        runpodAttempt: 0,
-        runpodJobId: null,
-        runpodStatus: null,
-        aiError: null,
-        linkedinPostId: null,
         accountId: input.accountId,
         linkedinMemberId: input.linkedinMemberId,
         publishedAt,
@@ -128,6 +140,39 @@ export class PrismaLinkedInContentHistoryRepository
         publishedAt,
       },
     })
+  }
+
+  async claimRunPodSubmission(input: {
+    contentKey: string
+    runpodInputMode: string
+    staleBefore: string
+  }): Promise<boolean> {
+    const staleBefore = new Date(input.staleBefore)
+    const result = await this.prisma.linkedInContentHistory.updateMany({
+      where: {
+        contentKey: input.contentKey,
+        runpodJobId: null,
+        OR: [
+          {
+            aiStatus: 'reserved',
+          },
+          {
+            aiStatus: 'submitting',
+            updatedAt: {
+              lte: staleBefore,
+            },
+          },
+        ],
+      },
+      data: {
+        aiStatus: 'submitting',
+        runpodInputMode: input.runpodInputMode,
+        runpodStatus: 'SUBMITTING',
+        aiError: null,
+      },
+    })
+
+    return result.count > 0
   }
 
   async markRunPodSubmitted(input: {
@@ -328,6 +373,7 @@ function toAiJobRecord(
     accountId: record.accountId,
     linkedinMemberId: record.linkedinMemberId,
     publishedAt: record.publishedAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
   }
 }
 
@@ -338,6 +384,8 @@ function normalizeAiStatus(
   switch (status?.toLowerCase()) {
     case 'reserved':
       return 'reserved'
+    case 'submitting':
+      return 'submitting'
     case 'submitted':
       return 'submitted'
     case 'in_queue':

@@ -20,6 +20,7 @@ export type LinkedInContentUsageInput = {
 
 export type LinkedInContentAiStatus =
   | 'reserved'
+  | 'submitting'
   | 'submitted'
   | 'in_queue'
   | 'in_progress'
@@ -45,6 +46,7 @@ export type LinkedInContentAiJobRecord = {
   accountId: string | null
   linkedinMemberId: string | null
   publishedAt: string
+  updatedAt: string
 }
 
 export type LinkedInContentReservationInput = {
@@ -66,7 +68,15 @@ export interface LinkedInContentHistoryRepository {
     accountId?: string
     linkedinMemberId?: string
   }): Promise<LinkedInContentAiJobRecord | null>
+  findAiJobByContentKey(
+    contentKey: string,
+  ): Promise<LinkedInContentAiJobRecord | null>
   reserveAiJob(input: LinkedInContentReservationInput): Promise<void>
+  claimRunPodSubmission(input: {
+    contentKey: string
+    runpodInputMode: string
+    staleBefore: string
+  }): Promise<boolean>
   markRunPodSubmitted(input: {
     contentKey: string
     runpodInputMode: string

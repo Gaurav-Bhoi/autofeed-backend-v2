@@ -23,6 +23,7 @@ import {
   getNextRunPodImageInputMode,
   readRunPodImageInputMode,
   RunPodLinkedInContentService,
+  type RunPodJobResult,
 } from './runpod-linkedin-content.service'
 import type { LinkedInContentPublishInput } from './publish-linkedin-content.service'
 import type { LinkedInContentTone } from '../domain/linkedin-content.entity'
@@ -31,6 +32,7 @@ const IST_DAILY_TEN_AM_UTC_HOUR = 4
 const IST_DAILY_TEN_AM_UTC_MINUTE = 30
 const SIX_HOURS_MS = 6 * 60 * 60 * 1000
 const EIGHTEEN_HOURS_MS = 18 * 60 * 60 * 1000
+const RUNPOD_SUBMISSION_STALE_MS = 10 * 60 * 1000
 const everyEighteenHoursAnchor = Date.UTC(2026, 0, 1, 4, 30, 0)
 
 export type LinkedInAutoPostSchedule =
@@ -201,6 +203,7 @@ export class PublishScheduledLinkedInContentService {
         accountId: account.id,
         publishedAt: scheduledAt.toISOString(),
         linkedinMemberId: account.linkedinMemberId,
+        updatedAt: scheduledAt.toISOString(),
       },
       account,
       config,
@@ -241,13 +244,83 @@ export class PublishScheduledLinkedInContentService {
     const imageInputMode = readRunPodImageInputMode(job.runpodInputMode)
 
     if (!runpodJobId) {
-      const submitted = await this.runPodService.submit({
-        imageUrl,
-        section: job.section,
-        sourceUrl: job.sourceUrl,
-        contentInput,
-        imageInputMode,
-      })
+      if (job.aiStatus === 'submitting' && !isStaleRunPodSubmission(job)) {
+        return this.createAiPendingResult(
+          config,
+          scheduledAt,
+          job,
+          'runpod-job-pending',
+          null,
+          job.runpodStatus ?? 'SUBMITTING',
+        )
+      }
+
+      const claimed = await this.contentHistoryRepository?.claimRunPodSubmission(
+        {
+          contentKey: job.contentKey,
+          runpodInputMode: imageInputMode,
+          staleBefore: new Date(
+            Date.now() - RUNPOD_SUBMISSION_STALE_MS,
+          ).toISOString(),
+        },
+      )
+
+      if (!claimed) {
+        return this.createAiPendingResult(
+          config,
+          scheduledAt,
+          job,
+          'runpod-job-pending',
+          null,
+          job.runpodStatus ?? 'SUBMITTING',
+        )
+      }
+
+      let submitted: RunPodJobResult
+
+      try {
+        submitted = await this.runPodService.submit({
+          imageUrl,
+          section: job.section,
+          sourceUrl: job.sourceUrl,
+          contentInput,
+          imageInputMode,
+        })
+      } catch (error) {
+        const message = readErrorMessage(error)
+        const nextMode = getNextRunPodImageInputMode(imageInputMode)
+
+        if (nextMode) {
+          await this.contentHistoryRepository?.markRunPodRetry({
+            contentKey: job.contentKey,
+            runpodInputMode: nextMode,
+            aiError: `${message}; retrying input mode`,
+          })
+
+          return this.createAiPendingResult(
+            config,
+            scheduledAt,
+            job,
+            'runpod-job-retrying',
+            null,
+            `retrying:${nextMode}`,
+          )
+        }
+
+        await this.contentHistoryRepository?.markAiFailed({
+          contentKey: job.contentKey,
+          aiError: message,
+        })
+
+        return this.createAiPendingResult(
+          config,
+          scheduledAt,
+          job,
+          'runpod-job-failed',
+          null,
+          message,
+        )
+      }
 
       runpodJobId = submitted.id
       runpodStatus = submitted.status
@@ -638,4 +711,19 @@ function isFailedRunPodStatus(status: string) {
     'CANCELED',
     'TIMED_OUT',
   ].includes(status.toUpperCase())
+}
+
+function readErrorMessage(error: unknown) {
+  return error instanceof Error && error.message
+    ? error.message
+    : 'RunPod job submission failed'
+}
+
+function isStaleRunPodSubmission(job: LinkedInContentAiJobRecord) {
+  const updatedAt = Date.parse(job.updatedAt)
+
+  return (
+    Number.isFinite(updatedAt) &&
+    Date.now() - updatedAt >= RUNPOD_SUBMISSION_STALE_MS
+  )
 }

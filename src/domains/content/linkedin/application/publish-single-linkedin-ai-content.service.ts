@@ -30,13 +30,20 @@ import {
 
 type RunPodAttemptResult =
   | {
-      ok: true
+      state: 'result'
       result: RunPodJobResult
     }
   | {
-      ok: false
+      state: 'pending'
+      runpodJobId: string | null
+      runpodStatus: string
+    }
+  | {
+      state: 'failed'
       error: string
     }
+
+const RUNPOD_SUBMISSION_STALE_MS = 10 * 60 * 1000
 
 type LinkedInContentPublishOverrides = Partial<{
   topic: string
@@ -113,7 +120,7 @@ export class PublishSingleLinkedInAiContentService {
       throw serviceUnavailable('LinkedIn content history storage is unavailable')
     }
 
-    if (!input.forceNew && !input.imageUrl) {
+    if (!input.forceNew) {
       const pendingJob =
         await this.contentHistoryRepository.findPendingAiJob({
           accountId: input.account.id,
@@ -134,6 +141,35 @@ export class PublishSingleLinkedInAiContentService {
       throw serviceUnavailable(
         'Selected LinkedIn single-post content must include imageUrl',
       )
+    }
+
+    if (!input.forceNew) {
+      const existingJob =
+        await this.contentHistoryRepository.findAiJobByContentKey(
+          selection.contentKey,
+        )
+
+      if (existingJob) {
+        if (existingJob.linkedinPostId || existingJob.aiStatus === 'posted') {
+          return createUnpostedResult(existingJob, 'content-already-posted', {
+            imageUrl: existingJob.imageUrl ?? imageUrl,
+            runpodJobId: existingJob.runpodJobId,
+            runpodStatus: existingJob.runpodStatus,
+            retryable: false,
+          })
+        }
+
+        if (existingJob.aiStatus === 'failed') {
+          return createUnpostedResult(existingJob, 'runpod-job-failed', {
+            imageUrl: existingJob.imageUrl ?? imageUrl,
+            runpodJobId: existingJob.runpodJobId,
+            runpodStatus: existingJob.runpodStatus,
+            retryable: false,
+          })
+        }
+
+        return this.processJob(existingJob, input, requestedAt)
+      }
     }
 
     await this.contentHistoryRepository.reserveAiJob({
@@ -167,6 +203,7 @@ export class PublishSingleLinkedInAiContentService {
         accountId: input.account.id,
         linkedinMemberId: input.account.linkedinMemberId,
         publishedAt: requestedAt.toISOString(),
+        updatedAt: requestedAt.toISOString(),
       },
       input,
       requestedAt,
@@ -229,7 +266,7 @@ export class PublishSingleLinkedInAiContentService {
         imageInputMode,
       )
 
-      if (!attempt.ok) {
+      if (attempt.state === 'failed') {
         const nextMode = getNextRunPodImageInputMode(imageInputMode)
 
         if (!nextMode) {
@@ -253,13 +290,24 @@ export class PublishSingleLinkedInAiContentService {
         })
         currentJob = {
           ...currentJob,
+          aiStatus: 'reserved',
           runpodInputMode: nextMode,
           runpodAttempt: currentJob.runpodAttempt + 1,
           runpodJobId: null,
           runpodStatus: null,
+          updatedAt: new Date().toISOString(),
         }
         imageInputMode = nextMode
         continue
+      }
+
+      if (attempt.state === 'pending') {
+        return createUnpostedResult(currentJob, 'runpod-job-pending', {
+          imageUrl,
+          runpodJobId: attempt.runpodJobId,
+          runpodStatus: attempt.runpodStatus,
+          retryable: true,
+        })
       }
 
       const completed = attempt.result
@@ -305,10 +353,12 @@ export class PublishSingleLinkedInAiContentService {
         })
         currentJob = {
           ...currentJob,
+          aiStatus: 'reserved',
           runpodInputMode: nextMode,
           runpodAttempt: currentJob.runpodAttempt + 1,
           runpodJobId: null,
           runpodStatus: null,
+          updatedAt: new Date().toISOString(),
         }
         imageInputMode = nextMode
         continue
@@ -379,7 +429,7 @@ export class PublishSingleLinkedInAiContentService {
           job.aiOutput !== undefined
         ) {
           return {
-            ok: true,
+            state: 'result',
             result: {
               id: job.runpodJobId,
               status: job.runpodStatus,
@@ -390,8 +440,34 @@ export class PublishSingleLinkedInAiContentService {
         }
 
         return {
-          ok: true,
+          state: 'result',
           result: await this.runPodService.waitForResult(job.runpodJobId),
+        }
+      }
+
+      if (job.aiStatus === 'submitting' && !isStaleRunPodSubmission(job)) {
+        return {
+          state: 'pending',
+          runpodJobId: null,
+          runpodStatus: job.runpodStatus ?? 'SUBMITTING',
+        }
+      }
+
+      const claimed = await this.contentHistoryRepository?.claimRunPodSubmission(
+        {
+          contentKey: job.contentKey,
+          runpodInputMode: imageInputMode,
+          staleBefore: new Date(
+            Date.now() - RUNPOD_SUBMISSION_STALE_MS,
+          ).toISOString(),
+        },
+      )
+
+      if (!claimed) {
+        return {
+          state: 'pending',
+          runpodJobId: null,
+          runpodStatus: job.runpodStatus ?? 'SUBMITTING',
         }
       }
 
@@ -415,18 +491,18 @@ export class PublishSingleLinkedInAiContentService {
         submitted.output !== undefined
       ) {
         return {
-          ok: true,
+          state: 'result',
           result: submitted,
         }
       }
 
       return {
-        ok: true,
+        state: 'result',
         result: await this.runPodService.waitForResult(submitted.id),
       }
     } catch (error) {
       return {
-        ok: false,
+        state: 'failed',
         error: readErrorMessage(error),
       }
     }
@@ -606,6 +682,15 @@ function readErrorMessage(error: unknown) {
   return error instanceof Error && error.message
     ? error.message
     : 'RunPod job submission failed'
+}
+
+function isStaleRunPodSubmission(job: LinkedInContentAiJobRecord) {
+  const updatedAt = Date.parse(job.updatedAt)
+
+  return (
+    Number.isFinite(updatedAt) &&
+    Date.now() - updatedAt >= RUNPOD_SUBMISSION_STALE_MS
+  )
 }
 
 function cleanHttpUrl(value: string | undefined, fieldName: string) {
