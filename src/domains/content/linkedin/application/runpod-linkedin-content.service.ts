@@ -107,7 +107,7 @@ export class RunPodLinkedInContentService {
     do {
       latest = await this.getStatus(jobId)
 
-      if (terminalRunPodStatuses.has(latest.status.toUpperCase())) {
+      if (isTerminalRunPodStatus(latest.status)) {
         return latest
       }
 
@@ -156,7 +156,7 @@ export class RunPodLinkedInContentService {
     }
   }
 
-  private async getStatus(jobId: string): Promise<RunPodJobResult> {
+  async getStatus(jobId: string): Promise<RunPodJobResult> {
     const response = await this.fetcher(this.buildUrl(`status/${jobId}`), {
       headers: {
         Authorization: formatAuthorization(this.config.apiKey),
@@ -198,6 +198,10 @@ export class RunPodLinkedInContentService {
       'Content-Type': 'application/json',
     }
   }
+}
+
+export function isTerminalRunPodStatus(status: string | null | undefined) {
+  return terminalRunPodStatuses.has(status?.toUpperCase() ?? '')
 }
 
 export function readRunPodImageInputMode(

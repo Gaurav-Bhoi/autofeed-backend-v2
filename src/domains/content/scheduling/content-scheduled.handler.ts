@@ -9,12 +9,23 @@ import {
 import {
   PublishScheduledLinkedInContentService,
   readLinkedInAutoPostSchedule,
+  shouldRun,
   type ScheduledLinkedInContentConfig,
+  type ScheduledLinkedInPostResult,
 } from '../linkedin/application/publish-scheduled-linkedin-content.service'
 import {
+  isTerminalRunPodStatus,
   readRunPodLinkedInContentConfig,
   RunPodLinkedInContentService,
 } from '../linkedin/application/runpod-linkedin-content.service'
+import {
+  createContentSchedulerStateStore,
+  type ContentSchedulerStateStore,
+  type ScheduledRunPodPendingJob,
+} from './content-scheduler-state.service'
+
+const LINKEDIN_MODULE = 'linkedin'
+const MAX_PENDING_RUNPOD_STATUS_CHECKS_PER_MODULE = 25
 
 type LinkedInAutoPostEnv = Env & {
   LINKEDIN_REDIRECT_URI?: string
@@ -29,55 +40,278 @@ type LinkedInAutoPostEnv = Env & {
   CONTENT_LINKEDIN_AUTO_POST_VISIBILITY?: string
 }
 
+type ScheduledContentModuleResult = {
+  module: string
+  status: 'skipped' | 'handled' | 'pending' | 'error'
+  reason?: string
+  pendingJobs?: number
+  runpodJobId?: string | null
+  runpodStatus?: string | null
+  result?: unknown
+  error?: string
+}
+
 export async function handleScheduledContent(
   controller: ScheduledController,
   env: Env,
 ) {
   const startedAt = performance.now()
   const scheduledAt = new Date(controller.scheduledTime)
+  const stateStore = createContentSchedulerStateStore(env)
+  const moduleResults: ScheduledContentModuleResult[] = []
 
-  try {
-    const { contentHistoryRepository, loginRepository, postService } =
-      await loadLinkedInServices(env)
-    const config = readScheduledLinkedInContentConfig(env)
-    const runPodService =
-      config.schedule === 'off'
-        ? null
-        : new RunPodLinkedInContentService(
-            readRunPodLinkedInContentConfig(env),
-          )
-    const service = new PublishScheduledLinkedInContentService(
-      loginRepository,
-      postService,
-      contentHistoryRepository,
-      runPodService,
-    )
-    const result = await service.execute(config, scheduledAt)
+  moduleResults.push(
+    await runScheduledContentModule(LINKEDIN_MODULE, async () =>
+      handleScheduledLinkedInContent({
+        env,
+        stateStore,
+        scheduledAt,
+      }),
+    ),
+  )
 
+  if (!isIdleSchedulerTick(moduleResults)) {
     console.log(
       JSON.stringify({
-        message: 'content.linkedin.scheduled.complete',
-        cron: controller.cron,
-        durationMs: Number((performance.now() - startedAt).toFixed(2)),
-        ...result,
-      }),
-    )
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        message: 'content.linkedin.scheduled.error',
+        message: 'content.scheduled.complete',
         cron: controller.cron,
         scheduledAt: scheduledAt.toISOString(),
         durationMs: Number((performance.now() - startedAt).toFixed(2)),
-        error:
-          error instanceof Error && error.message
-            ? error.message
-            : 'Scheduled LinkedIn content publishing failed',
+        schedulerStateEnabled: stateStore.enabled,
+        modules: moduleResults,
+      }),
+    )
+  }
+}
+
+async function runScheduledContentModule(
+  moduleName: string,
+  handler: () => Promise<Omit<ScheduledContentModuleResult, 'module'>>,
+): Promise<ScheduledContentModuleResult> {
+  try {
+    return {
+      module: moduleName,
+      ...(await handler()),
+    }
+  } catch (error) {
+    const message = readErrorMessage(error)
+
+    console.error(
+      JSON.stringify({
+        message: 'content.scheduled.module_error',
+        module: moduleName,
+        error: message,
       }),
     )
 
-    throw error
+    return {
+      module: moduleName,
+      status: 'error',
+      error: message,
+    }
   }
+}
+
+async function handleScheduledLinkedInContent(input: {
+  env: Env
+  stateStore: ContentSchedulerStateStore
+  scheduledAt: Date
+}): Promise<Omit<ScheduledContentModuleResult, 'module'>> {
+  const config = readScheduledLinkedInContentConfig(input.env)
+
+  if (config.schedule === 'off') {
+    return {
+      status: 'skipped',
+      reason: 'schedule-off',
+    }
+  }
+
+  const shouldCreatePost = shouldHandleLinkedInSchedulerTick(
+    config,
+    input.scheduledAt,
+  )
+  const pendingJobs = await input.stateStore.listPendingRunPodJobs(
+    LINKEDIN_MODULE,
+  )
+
+  if (!shouldCreatePost && pendingJobs.length === 0) {
+    return {
+      status: 'skipped',
+      reason: 'no-due-work-or-pending-runpod-job',
+      pendingJobs: 0,
+    }
+  }
+
+  if (!shouldCreatePost) {
+    return pollPendingLinkedInRunPodJobs({
+      ...input,
+      config,
+      pendingJobs,
+    })
+  }
+
+  const result = await executeScheduledLinkedInContent(
+    input.env,
+    config,
+    input.scheduledAt,
+  )
+  await syncLinkedInPendingRunPodState(input.stateStore, result)
+
+  return {
+    status: result.posted ? 'handled' : 'pending',
+    reason: result.posted ? 'posted' : result.reason,
+    pendingJobs: pendingJobs.length,
+    runpodJobId: result.runpodJobId,
+    runpodStatus: result.runpodStatus,
+    result,
+  }
+}
+
+async function pollPendingLinkedInRunPodJobs(input: {
+  env: Env
+  stateStore: ContentSchedulerStateStore
+  scheduledAt: Date
+  config: ScheduledLinkedInContentConfig
+  pendingJobs: ScheduledRunPodPendingJob[]
+}): Promise<Omit<ScheduledContentModuleResult, 'module'>> {
+  const runPodService = new RunPodLinkedInContentService(
+    readRunPodLinkedInContentConfig(input.env),
+  )
+  let checked = 0
+
+  for (const pendingJob of input.pendingJobs.slice(
+    0,
+    MAX_PENDING_RUNPOD_STATUS_CHECKS_PER_MODULE,
+  )) {
+    checked += 1
+    const status = await runPodService.getStatus(pendingJob.runpodJobId)
+
+    if (!isTerminalRunPodStatus(status.status)) {
+      await input.stateStore.putPendingRunPodJob({
+        module: LINKEDIN_MODULE,
+        accountId: pendingJob.accountId,
+        externalAccountId: pendingJob.externalAccountId,
+        contentKey: pendingJob.contentKey,
+        runpodJobId: pendingJob.runpodJobId,
+        runpodStatus: status.status,
+      })
+
+      continue
+    }
+
+    const result = await executeScheduledLinkedInContent(
+      input.env,
+      input.config,
+      input.scheduledAt,
+    )
+    await syncLinkedInPendingRunPodState(
+      input.stateStore,
+      result,
+      pendingJob,
+    )
+
+    return {
+      status: result.posted ? 'handled' : 'pending',
+      reason: result.posted ? 'posted' : result.reason,
+      pendingJobs: input.pendingJobs.length,
+      runpodJobId: result.runpodJobId ?? pendingJob.runpodJobId,
+      runpodStatus: result.runpodStatus ?? status.status,
+      result,
+    }
+  }
+
+  return {
+    status: input.pendingJobs.length > 0 ? 'pending' : 'skipped',
+    reason:
+      input.pendingJobs.length > checked
+        ? 'pending-runpod-check-limit-reached'
+        : 'runpod-jobs-not-complete',
+    pendingJobs: input.pendingJobs.length,
+  }
+}
+
+async function executeScheduledLinkedInContent(
+  env: Env,
+  config: ScheduledLinkedInContentConfig,
+  scheduledAt: Date,
+) {
+  const { contentHistoryRepository, loginRepository, postService } =
+    await loadLinkedInServices(env)
+  const runPodService = new RunPodLinkedInContentService(
+    readRunPodLinkedInContentConfig(env),
+  )
+  const service = new PublishScheduledLinkedInContentService(
+    loginRepository,
+    postService,
+    contentHistoryRepository,
+    runPodService,
+  )
+
+  return service.execute(config, scheduledAt)
+}
+
+async function syncLinkedInPendingRunPodState(
+  stateStore: ContentSchedulerStateStore,
+  result: ScheduledLinkedInPostResult,
+  previousPendingJob?: ScheduledRunPodPendingJob,
+) {
+  const runpodJobId = result.runpodJobId
+
+  if (runpodJobId && shouldKeepPendingRunPodState(result)) {
+    await stateStore.putPendingRunPodJob({
+      module: LINKEDIN_MODULE,
+      accountId: readResultAccountId(result),
+      externalAccountId: readResultLinkedInMemberId(result),
+      runpodJobId,
+      runpodStatus: result.runpodStatus,
+    })
+
+    return
+  }
+
+  if (previousPendingJob) {
+    await stateStore.deletePendingRunPodJob(previousPendingJob.key)
+  }
+}
+
+function shouldKeepPendingRunPodState(result: ScheduledLinkedInPostResult) {
+  if (!result.runpodJobId || result.posted) {
+    return false
+  }
+
+  if (!result.runpodStatus) {
+    return true
+  }
+
+  if (result.runpodStatus.startsWith('retrying:')) {
+    return false
+  }
+
+  if (
+    result.runpodStatus === 'DAILY_LIMIT_REACHED' ||
+    result.runpodStatus === 'DEPENDENCY_UNAVAILABLE'
+  ) {
+    return false
+  }
+
+  return !isTerminalRunPodStatus(result.runpodStatus)
+}
+
+function readResultAccountId(result: ScheduledLinkedInPostResult) {
+  return 'accountId' in result ? result.accountId : null
+}
+
+function readResultLinkedInMemberId(result: ScheduledLinkedInPostResult) {
+  return 'linkedinMemberId' in result ? result.linkedinMemberId : null
+}
+
+function isIdleSchedulerTick(results: ScheduledContentModuleResult[]) {
+  return results.every(
+    (result) =>
+      result.status === 'skipped' &&
+      (result.reason === 'schedule-off' ||
+        result.reason === 'no-due-work-or-pending-runpod-job'),
+  )
 }
 
 function readScheduledLinkedInContentConfig(
@@ -155,6 +389,21 @@ function readScheduledLinkedInContentConfig(
   return config
 }
 
+function shouldHandleLinkedInSchedulerTick(
+  config: ScheduledLinkedInContentConfig,
+  scheduledAt: Date,
+) {
+  if (config.schedule === 'off') {
+    return false
+  }
+
+  if (shouldRun(config.schedule, scheduledAt)) {
+    return true
+  }
+
+  return false
+}
+
 function readPublicBaseUrlFromEnv(env: LinkedInAutoPostEnv) {
   const redirectUri = env.LINKEDIN_REDIRECT_URI?.trim()
 
@@ -178,4 +427,10 @@ function assignOptional<
   if (cleaned) {
     target[key] = cleaned as T[K]
   }
+}
+
+function readErrorMessage(error: unknown) {
+  return error instanceof Error && error.message
+    ? error.message
+    : 'Scheduled content module failed'
 }

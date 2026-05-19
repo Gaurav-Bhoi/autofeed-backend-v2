@@ -132,7 +132,7 @@ Automation accepts only `start` and `stop`. Starting or stopping automation requ
 
 ### LinkedIn scheduled publishing
 
-The Worker also has a scheduled handler for automatic LinkedIn publishing from the content domain. The cron trigger runs every five minutes so pending RunPod jobs can be polled quickly, while new LinkedIn content is still created only at configured posting windows:
+The Worker also has a module-aware scheduled handler for automatic social publishing from the content domain. A single global cron runs every five minutes, but idle ticks only check cheap scheduler state; they do not touch Neon or RunPod unless a module is due to create work or has pending RunPod jobs. Pending state is keyed by module, account, and job/content id so future modules can track multiple posts without separate cron triggers. The detailed safety design is documented in [docs/linkedin-automation-system-design.md](docs/linkedin-automation-system-design.md). New LinkedIn content is created only at configured posting windows:
 
 - `daily-10am`: publishes at 10:00 AM Asia/Kolkata (`04:30` UTC)
 - `every-18-hours`: publishes every 18 hours, anchored from 10:00 AM Asia/Kolkata
@@ -149,7 +149,7 @@ Built-in image sources:
 - `tech-memes`: prefers highly scored weekly image posts from meme-focused subreddits and falls back to generated Memegen images only when Reddit has no usable unused meme
 - `news`: chooses a random broad-news subreddit, reads its daily top JSON feed, and renders the selected story into a square editorial PNG card with a source image, bold headline, highlighted keywords, and a black lower panel. `tech-news` remains accepted as a legacy alias.
 
-After an image is selected, the scheduler submits it to the configured RunPod Serverless endpoint. If the endpoint is warm, the same invocation may receive the AI result and publish immediately. If RunPod is cold-starting, downloading models, or still processing, the job id is stored and later cron ticks poll `/status/{job_id}` until the AI response is ready. The AI response must be JSON with `caption`, `post_content`, and `hashtags`; those fields are composed into the final LinkedIn text and posted with the selected image.
+After an image is selected, the scheduler submits it to the configured RunPod Serverless endpoint only after an atomic Postgres claim succeeds. If the endpoint is warm, the same invocation may receive the AI result and publish immediately. If RunPod is cold-starting, downloading models, or still processing, the job id is stored in scheduler state and later five-minute ticks poll `/status/{job_id}` without touching Neon until RunPod reaches a terminal status. The AI response must be JSON with `caption`, `post_content`, and `hashtags`; those fields are composed into the final LinkedIn text and posted with the selected image.
 
 Scheduled content engine vars:
 
@@ -163,8 +163,10 @@ Scheduled content engine vars:
 - `CONTENT_LINKEDIN_RUNPOD_POLL_INTERVAL_MS`: status polling interval during that wait window
 - `CONTENT_LINKEDIN_AUTO_POST_CONTENT_POOL`: optional JSON array of content items
 - `CONTENT_LINKEDIN_AUTO_POST_VISIBILITY`: optional default LinkedIn visibility for selected items
+- `CONTENT_SCHEDULER_STATE`: optional Cloudflare KV binding used for cheap pending RunPod job state between five-minute scheduler ticks
+- `CONTENT_SCHEDULER_PENDING_TTL_SECONDS`: optional pending-state TTL, defaulting to 172800 seconds
 
-`RUNPOD_API_KEY` must be configured as a Worker secret. Do not put the RunPod bearer token in `wrangler.jsonc` or source files.
+`RUNPOD_API_KEY` must be configured as a Worker secret. Do not put the RunPod bearer token in `wrangler.jsonc` or source files. `CONTENT_SCHEDULER_STATE` should be bound to a Cloudflare KV namespace to enable five-minute pending-job polling; without it, idle ticks still no-op safely but pending jobs are not resumed by the cheap scheduler state.
 
 Default meme subreddits are `r/ProgrammerHumor`, `r/programmingmemes`, `r/ProgrammerDadJokes`, `r/programmerreactions`, `r/linuxmemes`, `r/webdevmemes`, `r/sysadminhumor`, `r/iiiiiiitttttttttttt`, and `r/softwaregore`. Reddit-sourced meme posts include the source subreddit in the RunPod prompt so the final LinkedIn text can mention the channel naturally.
 

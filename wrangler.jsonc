@@ -49,6 +49,12 @@
           "pattern": "dev-api.autofeed.io/*",
           "zone_name": "autofeed.io"
         }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "CONTENT_SCHEDULER_STATE",
+          "id": "51a21fa996594b17b94d50be838cda0a"
+        }
       ]
     },
     "production": {
@@ -84,6 +90,12 @@
         {
           "pattern": "api.autofeed.io/*",
           "zone_name": "autofeed.io"
+        }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "CONTENT_SCHEDULER_STATE",
+          "id": "f855c6737c6348488bb54a0f92c510e2"
         }
       ]
     }

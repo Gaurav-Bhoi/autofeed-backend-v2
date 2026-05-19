@@ -80,6 +80,8 @@ export type ScheduledLinkedInPostResult =
       schedule: LinkedInAutoPostSchedule
       scheduledAt: string
       reason: string
+      accountId?: string | null
+      linkedinMemberId?: string | null
       contentSection: string | null
       contentItemId: string | null
       runpodJobId: string | null
@@ -633,6 +635,8 @@ export class PublishScheduledLinkedInContentService {
       schedule: config.schedule,
       scheduledAt: scheduledAt.toISOString(),
       reason,
+      accountId: job.accountId,
+      linkedinMemberId: job.linkedinMemberId,
       contentSection: job.section,
       contentItemId: job.itemId,
       runpodJobId,
