@@ -1,4 +1,5 @@
 import { badGateway, serviceUnavailable } from '../../../../shared/http/errors'
+import type { DependencyCircuitBreaker } from '../../../../shared/dependencies/dependency-circuit-breaker'
 import type { LinkedInContentPublishInput } from './publish-linkedin-content.service'
 
 const DEFAULT_RUNPOD_ENDPOINT_ID = 'qexf1iafzz41nh'
@@ -73,6 +74,7 @@ export class RunPodLinkedInContentService {
   constructor(
     private readonly config: RunPodLinkedInContentConfig,
     private readonly fetcher: typeof fetch = defaultFetcher,
+    private readonly dependencyCircuitBreaker: DependencyCircuitBreaker | null = null,
   ) {}
 
   async submit(input: {
@@ -82,22 +84,27 @@ export class RunPodLinkedInContentService {
     contentInput: LinkedInContentPublishInput
     imageInputMode: RunPodImageInputMode
   }): Promise<RunPodJobResult> {
-    const messages = await createRunPodMessages(input, this.fetcher)
-    const response = await this.fetcher(this.buildUrl('run'), {
-      method: 'POST',
-      headers: this.createHeaders(),
-      body: JSON.stringify({
-        input: {
-          task: 'chat',
-          model: this.config.model,
-          max_new_tokens: this.config.maxNewTokens,
-          temperature: this.config.temperature,
-          messages,
-        },
-      }),
-    })
+    await this.assertRunPodAvailable()
 
-    return this.readJobResponse(response, 'RunPod job submission failed')
+    const messages = await createRunPodMessages(input, this.fetcher)
+
+    return this.runRunPodRequest(async () => {
+      const response = await this.fetcher(this.buildUrl('run'), {
+        method: 'POST',
+        headers: this.createHeaders(),
+        body: JSON.stringify({
+          input: {
+            task: 'chat',
+            model: this.config.model,
+            max_new_tokens: this.config.maxNewTokens,
+            temperature: this.config.temperature,
+            messages,
+          },
+        }),
+      })
+
+      return this.readJobResponse(response, 'RunPod job submission failed')
+    })
   }
 
   async waitForResult(jobId: string): Promise<RunPodJobResult> {
@@ -118,14 +125,18 @@ export class RunPodLinkedInContentService {
   }
 
   async cancel(jobId: string): Promise<RunPodJobResult> {
-    const response = await this.fetcher(this.buildUrl(`cancel/${jobId}`), {
-      method: 'POST',
-      headers: {
-        Authorization: formatAuthorization(this.config.apiKey),
-      },
-    })
+    await this.assertRunPodAvailable()
 
-    return this.readJobResponse(response, 'RunPod job cancellation failed')
+    return this.runRunPodRequest(async () => {
+      const response = await this.fetcher(this.buildUrl(`cancel/${jobId}`), {
+        method: 'POST',
+        headers: {
+          Authorization: formatAuthorization(this.config.apiKey),
+        },
+      })
+
+      return this.readJobResponse(response, 'RunPod job cancellation failed')
+    })
   }
 
   parsePostContent(output: unknown): RunPodLinkedInPostContent {
@@ -157,13 +168,35 @@ export class RunPodLinkedInContentService {
   }
 
   async getStatus(jobId: string): Promise<RunPodJobResult> {
-    const response = await this.fetcher(this.buildUrl(`status/${jobId}`), {
-      headers: {
-        Authorization: formatAuthorization(this.config.apiKey),
-      },
-    })
+    await this.assertRunPodAvailable()
 
-    return this.readJobResponse(response, 'RunPod status request failed')
+    return this.runRunPodRequest(async () => {
+      const response = await this.fetcher(this.buildUrl(`status/${jobId}`), {
+        headers: {
+          Authorization: formatAuthorization(this.config.apiKey),
+        },
+      })
+
+      return this.readJobResponse(response, 'RunPod status request failed')
+    })
+  }
+
+  private async assertRunPodAvailable() {
+    await this.dependencyCircuitBreaker?.assertAvailable('runpod')
+  }
+
+  private async runRunPodRequest<T>(request: () => Promise<T>) {
+    try {
+      const result = await request()
+
+      await this.dependencyCircuitBreaker?.recordSuccess('runpod')
+
+      return result
+    } catch (error) {
+      await this.dependencyCircuitBreaker?.recordFailure('runpod', error)
+
+      throw error
+    }
   }
 
   private async readJobResponse(response: Response, fallback: string) {

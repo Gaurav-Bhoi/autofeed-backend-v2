@@ -39,7 +39,9 @@
         "CONTENT_LINKEDIN_RUNPOD_MAX_NEW_TOKENS": "650",
         "CONTENT_LINKEDIN_RUNPOD_TEMPERATURE": "0.2",
         "CONTENT_LINKEDIN_RUNPOD_POLL_TIMEOUT_MS": "45000",
-        "CONTENT_LINKEDIN_RUNPOD_POLL_INTERVAL_MS": "5000"
+        "CONTENT_LINKEDIN_RUNPOD_POLL_INTERVAL_MS": "5000",
+        "DEPENDENCY_NEON_FORCE_DOWN": "true",
+        "DEPENDENCY_NEON_FORCE_DOWN_REASON": "Neon monthly compute allowance is exhausted"
       },
       "routes": [
         {

@@ -3,6 +3,7 @@ import type { Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 
 import type { AppEnv } from '../../../app/types'
+import { recordKnownDependencyFailure } from '../../../shared/dependencies/dependency-circuit-breaker'
 import { badRequest, unauthorized } from '../../../shared/http/errors'
 import { getBearerToken, parseJsonObject } from '../../../shared/http/request'
 import { LINKEDIN_CALLBACK_PATH } from '../linkedin.constants'
@@ -173,6 +174,8 @@ export async function handleLinkedInCallback(c: Context<AppEnv>) {
 
     return withPrivateResponseHeaders(response)
   } catch (error) {
+    await recordKnownDependencyFailure(c.env, error)
+
     if (!prefersHtml) {
       throw error
     }

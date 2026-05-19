@@ -3,6 +3,7 @@ import type { Context } from 'hono'
 
 import type { AppEnv } from '../../../../app/types'
 import { loadLinkedInServices } from '../../../linkedin/infrastructure/load-linkedin-services'
+import { createDependencyCircuitBreaker } from '../../../../shared/dependencies/dependency-circuit-breaker'
 import type {
   FindLinkedInStoredAccountInput,
   LinkedInVisibility,
@@ -245,6 +246,10 @@ export function createLinkedInContentRouter() {
 
 async function handleSingleLinkedInAiPost(c: Context<AppEnv>) {
   const body = await readOptionalLinkedInContentBody(c)
+  const dependencyCircuitBreaker = createDependencyCircuitBreaker(c.env)
+
+  await dependencyCircuitBreaker.assertAvailable('runpod')
+
   const {
     accountSessionService,
     contentHistoryRepository,
@@ -260,6 +265,8 @@ async function handleSingleLinkedInAiPost(c: Context<AppEnv>) {
   const account = await sessionService.requirePublishableAccount(lookup)
   const runPodService = new RunPodLinkedInContentService(
     readRunPodLinkedInContentConfig(c.env),
+    undefined,
+    dependencyCircuitBreaker,
   )
   const service = new PublishSingleLinkedInAiContentService(
     postService,

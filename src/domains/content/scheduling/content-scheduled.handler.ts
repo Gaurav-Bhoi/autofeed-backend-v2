@@ -1,5 +1,12 @@
 import { loadLinkedInServices } from '../../linkedin/infrastructure/load-linkedin-services'
 import {
+  createDependencyCircuitBreaker,
+  isNeonUnavailableError,
+  isRunPodUnavailableError,
+  type DependencyCircuitBreaker,
+  type DependencyName,
+} from '../../../shared/dependencies/dependency-circuit-breaker'
+import {
   readLinkedInContentPool,
   readLinkedInContentSections,
   readLinkedInMemeSubreddits,
@@ -58,6 +65,7 @@ export async function handleScheduledContent(
   const startedAt = performance.now()
   const scheduledAt = new Date(controller.scheduledTime)
   const stateStore = createContentSchedulerStateStore(env)
+  const dependencyCircuitBreaker = createDependencyCircuitBreaker(env)
   const moduleResults: ScheduledContentModuleResult[] = []
 
   moduleResults.push(
@@ -65,6 +73,7 @@ export async function handleScheduledContent(
       handleScheduledLinkedInContent({
         env,
         stateStore,
+        dependencyCircuitBreaker,
         scheduledAt,
       }),
     ),
@@ -115,6 +124,7 @@ async function runScheduledContentModule(
 async function handleScheduledLinkedInContent(input: {
   env: Env
   stateStore: ContentSchedulerStateStore
+  dependencyCircuitBreaker: DependencyCircuitBreaker
   scheduledAt: Date
 }): Promise<Omit<ScheduledContentModuleResult, 'module'>> {
   const config = readScheduledLinkedInContentConfig(input.env)
@@ -142,6 +152,20 @@ async function handleScheduledLinkedInContent(input: {
     }
   }
 
+  const dependencyOutage = await readBlockingDependencyOutage(
+    input.dependencyCircuitBreaker,
+    ['neon', 'runpod'],
+  )
+
+  if (dependencyOutage) {
+    return {
+      status: 'skipped',
+      reason: `dependency-unavailable:${dependencyOutage.dependency}`,
+      pendingJobs: pendingJobs.length,
+      error: dependencyOutage.reason,
+    }
+  }
+
   if (!shouldCreatePost) {
     return pollPendingLinkedInRunPodJobs({
       ...input,
@@ -154,6 +178,7 @@ async function handleScheduledLinkedInContent(input: {
     input.env,
     config,
     input.scheduledAt,
+    input.dependencyCircuitBreaker,
   )
   await syncLinkedInPendingRunPodState(input.stateStore, result)
 
@@ -170,12 +195,15 @@ async function handleScheduledLinkedInContent(input: {
 async function pollPendingLinkedInRunPodJobs(input: {
   env: Env
   stateStore: ContentSchedulerStateStore
+  dependencyCircuitBreaker: DependencyCircuitBreaker
   scheduledAt: Date
   config: ScheduledLinkedInContentConfig
   pendingJobs: ScheduledRunPodPendingJob[]
 }): Promise<Omit<ScheduledContentModuleResult, 'module'>> {
   const runPodService = new RunPodLinkedInContentService(
     readRunPodLinkedInContentConfig(input.env),
+    undefined,
+    input.dependencyCircuitBreaker,
   )
   let checked = 0
 
@@ -203,6 +231,7 @@ async function pollPendingLinkedInRunPodJobs(input: {
       input.env,
       input.config,
       input.scheduledAt,
+      input.dependencyCircuitBreaker,
     )
     await syncLinkedInPendingRunPodState(
       input.stateStore,
@@ -234,20 +263,35 @@ async function executeScheduledLinkedInContent(
   env: Env,
   config: ScheduledLinkedInContentConfig,
   scheduledAt: Date,
+  dependencyCircuitBreaker: DependencyCircuitBreaker,
 ) {
-  const { contentHistoryRepository, loginRepository, postService } =
-    await loadLinkedInServices(env)
-  const runPodService = new RunPodLinkedInContentService(
-    readRunPodLinkedInContentConfig(env),
-  )
-  const service = new PublishScheduledLinkedInContentService(
-    loginRepository,
-    postService,
-    contentHistoryRepository,
-    runPodService,
-  )
+  try {
+    const { contentHistoryRepository, loginRepository, postService } =
+      await loadLinkedInServices(env)
+    const runPodService = new RunPodLinkedInContentService(
+      readRunPodLinkedInContentConfig(env),
+      undefined,
+      dependencyCircuitBreaker,
+    )
+    const service = new PublishScheduledLinkedInContentService(
+      loginRepository,
+      postService,
+      contentHistoryRepository,
+      runPodService,
+    )
 
-  return service.execute(config, scheduledAt)
+    return await service.execute(config, scheduledAt)
+  } catch (error) {
+    if (isNeonUnavailableError(error)) {
+      await dependencyCircuitBreaker.recordFailure('neon', error)
+    }
+
+    if (isRunPodUnavailableError(error)) {
+      await dependencyCircuitBreaker.recordFailure('runpod', error)
+    }
+
+    throw error
+  }
 }
 
 async function syncLinkedInPendingRunPodState(
@@ -402,6 +446,21 @@ function shouldHandleLinkedInSchedulerTick(
   }
 
   return false
+}
+
+async function readBlockingDependencyOutage(
+  dependencyCircuitBreaker: DependencyCircuitBreaker,
+  dependencies: DependencyName[],
+) {
+  for (const dependency of dependencies) {
+    const outage = await dependencyCircuitBreaker.readOutage(dependency)
+
+    if (outage) {
+      return outage
+    }
+  }
+
+  return null
 }
 
 function readPublicBaseUrlFromEnv(env: LinkedInAutoPostEnv) {

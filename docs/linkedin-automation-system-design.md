@@ -32,6 +32,20 @@ Do not use in-memory timers such as `setTimeout` to resume work after the schedu
 
 `CONTENT_SCHEDULER_STATE` is the KV binding for cheap pending state. If that binding is missing, idle ticks still fail safe without touching Neon or RunPod, but five-minute pending-job polling is disabled until the binding is configured.
 
+The same KV binding also stores short-lived dependency circuit state:
+
+- `dependency:circuit:neon`
+- `dependency:circuit:runpod`
+
+If Neon or RunPod has a recent failure, modules that require that dependency skip downstream calls until the circuit TTL expires. The default TTLs are 15 minutes for Neon and 5 minutes for RunPod, configurable with `DEPENDENCY_NEON_BLOCK_TTL_SECONDS` and `DEPENDENCY_RUNPOD_BLOCK_TTL_SECONDS`.
+
+Known outages can also be forced without waiting for the first failed request:
+
+- `DEPENDENCY_NEON_FORCE_DOWN=true`
+- `DEPENDENCY_RUNPOD_FORCE_DOWN=true`
+
+Use the optional `DEPENDENCY_NEON_FORCE_DOWN_REASON` and `DEPENDENCY_RUNPOD_FORCE_DOWN_REASON` values to explain the outage in 503 responses and scheduler logs.
+
 ## Job Lifecycle
 
 LinkedIn is the first implemented module, but every future module should follow the same lifecycle.
@@ -57,8 +71,10 @@ LinkedIn is the first implemented module, but every future module should follow 
 - A content item with an existing RunPod job id must never be submitted again.
 - A pending job blocks creation of a second daily job for the same account.
 - If Neon is unavailable before submission, fail closed and do not call RunPod.
+- If Neon is already marked down, do not load DB-backed services or call RunPod for modules that need Neon to complete.
 - If Neon is unavailable after RunPod accepted a job, request RunPod cancellation.
 - If RunPod is unavailable, record dependency failure and do not retry with another input mode in the same tick.
+- If RunPod is already marked down, do not create new RunPod jobs and do not poll pending RunPod jobs until the circuit TTL expires.
 - Production automation remains `off` until deliberately enabled.
 
 ## Cost Bounds
@@ -70,7 +86,9 @@ RunPod cost is bounded by per-module and global daily submission caps. Polling a
 ## Failure Handling
 
 - Neon down before claim: return `dependency-unavailable`; no RunPod request is made.
+- Neon circuit open: return 503 for user APIs or skip scheduled work before DB/RunPod calls.
 - RunPod submit down: return `dependency-unavailable`; no alternate retry path is attempted.
+- RunPod circuit open: return 503 for RunPod-backed user APIs or skip scheduled polling/submission.
 - Neon down after RunPod submit: request RunPod cancellation and return `dependency-unavailable`.
 - RunPod job pending: keep the saved job id in cheap scheduler state and poll on later 5-minute ticks.
 - RunPod terminal failure: mark failed or move to the next input mode only through the persisted retry state.

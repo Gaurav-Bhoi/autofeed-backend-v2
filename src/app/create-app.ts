@@ -6,6 +6,7 @@ import { requestId } from 'hono/request-id'
 
 import { LINKEDIN_CALLBACK_PATH } from '../domains/linkedin/linkedin.constants'
 import { handleLinkedInCallback } from '../domains/linkedin/presentation/linkedin.routes'
+import { recordKnownDependencyFailure } from '../shared/dependencies/dependency-circuit-breaker'
 import { createApiRouter } from './create-api-router'
 import type { AppEnv } from './types'
 
@@ -108,9 +109,11 @@ export function createApp() {
     )
   })
 
-  app.onError((err, c) => {
+  app.onError(async (err, c) => {
     const requestId = c.get('requestId')
     const status = err instanceof HTTPException ? err.status : 500
+
+    await recordKnownDependencyFailure(c.env, err)
 
     console.error(
       JSON.stringify({
